@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   TrendingUp, 
   Store, 
@@ -17,7 +17,9 @@ import {
   RefreshCw,
   Camera,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  FileSpreadsheet,
+  ChevronDown
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -60,6 +62,23 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'NORMAL' | 'WARNING' | 'DEVIATION'>('ALL');
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'batches'>('overview');
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
+        setShowExportDropdown(false);
+      }
+    };
+    if (showExportDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showExportDropdown]);
 
   // Filter branches
   const filteredBranches = branches.filter(b => {
@@ -94,7 +113,190 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
     return null;
   };
 
-  // Export CSV Report (Clean, Excel-Ready with UTF-8 BOM & Structured Formatting)
+  // Export Excel Spreadsheet (.xls with native HTML table formatting, borders, colors & proper columns)
+  const handleExportExcel = () => {
+    if (!batches || batches.length === 0) {
+      alert("Belum ada data batch untuk diunduh.");
+      return;
+    }
+
+    const exportDateStr = new Date().toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' });
+    const totalCount = batches.length;
+    const passCount = batches.filter(b => b.status === 'NORMAL').length;
+    const warningCount = batches.filter(b => b.status === 'WARNING').length;
+    const devCount = batches.filter(b => b.status === 'DEVIATION').length;
+    const complianceRate = totalCount > 0 ? Math.round((passCount / totalCount) * 100) : 100;
+    const avgScore = (batches.reduce((acc, curr) => acc + curr.crispnessScore, 0) / (totalCount || 1)).toFixed(1);
+
+    const escapeHtml = (val: any) => {
+      const s = val === null || val === undefined ? '' : String(val);
+      return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    };
+
+    const excelHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <!--[if gte mso 9]>
+  <xml>
+    <x:ExcelWorkbook>
+      <x:ExcelWorksheets>
+        <x:ExcelWorksheet>
+          <x:Name>Rekam Mutu CPPOB</x:Name>
+          <x:WorksheetOptions>
+            <x:DisplayGridlines/>
+          </x:WorksheetOptions>
+        </x:ExcelWorksheet>
+      </x:ExcelWorksheets>
+    </x:ExcelWorkbook>
+  </xml>
+  <![endif]-->
+  <style>
+    body { font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1e293b; margin: 0; padding: 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 10pt; border: 1px solid #0d9488; padding: 10px 8px; text-align: center; vertical-align: middle; }
+    td { border: 1px solid #cbd5e1; padding: 7px 10px; font-size: 10pt; vertical-align: middle; }
+    .header-main { background-color: #0f766e; color: #ffffff; font-size: 14pt; font-weight: bold; text-align: center; padding: 12px; border: 1px solid #0f766e; }
+    .header-sub { background-color: #115e59; color: #ccfbf1; font-size: 9.5pt; text-align: center; padding: 6px; border: 1px solid #115e59; }
+    .header-meta { background-color: #f1f5f9; color: #334155; font-size: 9pt; padding: 6px 10px; border: 1px solid #cbd5e1; }
+    .kpi-title { background-color: #f8fafc; color: #64748b; font-size: 8.5pt; font-weight: bold; text-transform: uppercase; text-align: center; border: 1px solid #cbd5e1; padding: 6px; }
+    .kpi-val { background-color: #ffffff; color: #0f172a; font-size: 11pt; font-weight: bold; text-align: center; border: 1px solid #cbd5e1; padding: 6px; }
+    .status-normal { background-color: #d1fae5; color: #065f46; font-weight: bold; text-align: center; border: 1px solid #86efac; }
+    .status-warning { background-color: #fef3c7; color: #92400e; font-weight: bold; text-align: center; border: 1px solid #fde68a; }
+    .status-dev { background-color: #fee2e2; color: #991b1b; font-weight: bold; text-align: center; border: 1px solid #fca5a5; }
+    .score-green { color: #059669; font-weight: bold; text-align: center; }
+    .score-amber { color: #d97706; font-weight: bold; text-align: center; }
+    .score-red { color: #dc2626; font-weight: bold; text-align: center; }
+    .row-even { background-color: #f8fafc; }
+    .text-center { text-align: center; }
+    .text-left { text-align: left; }
+    .text-right { text-align: right; }
+    .font-mono { font-family: 'Consolas', 'Courier New', monospace; }
+  </style>
+</head>
+<body>
+  <table>
+    <colgroup>
+      <col width="45" />
+      <col width="120" />
+      <col width="170" />
+      <col width="140" />
+      <col width="170" />
+      <col width="130" />
+      <col width="110" />
+      <col width="120" />
+      <col width="120" />
+      <col width="110" />
+      <col width="110" />
+      <col width="160" />
+      <col width="140" />
+      <col width="340" />
+    </colgroup>
+    <tr>
+      <td colspan="14" class="header-main">LAPORAN RESMI REKAM MUTU &amp; KONSISTENSI TEKSTUR PANGAN</td>
+    </tr>
+    <tr>
+      <td colspan="14" class="header-sub">SISTEM AUDIT RASA AI &bull; STANDAR ACUAN: SNI 7388:2009 &amp; CPPOB BPOM RI NO. 22/2021 (KLAUSUL 8 &amp; 14)</td>
+    </tr>
+    <tr>
+      <td colspan="7" class="header-meta"><strong>Waktu Unduh:</strong> ${exportDateStr}</td>
+      <td colspan="7" class="header-meta" style="text-align: right;"><strong>Instrumen:</strong> Mini-Dome Inspection Chamber v2.4 (Dual-Engine AI)</td>
+    </tr>
+    <tr>
+      <td colspan="3" class="kpi-title">TOTAL BATCH DIUJI</td>
+      <td colspan="3" class="kpi-title">TINGKAT KEPATUHAN MUTU</td>
+      <td colspan="3" class="kpi-title">LOLOS STANDAR (NORMAL)</td>
+      <td colspan="3" class="kpi-title">PERLU PANTAUAN (WARNING)</td>
+      <td colspan="2" class="kpi-title">DEVIASI MUTU (GAGAL)</td>
+    </tr>
+    <tr>
+      <td colspan="3" class="kpi-val">${totalCount} Batch</td>
+      <td colspan="3" class="kpi-val" style="color: #0f766e;">${complianceRate}%</td>
+      <td colspan="3" class="kpi-val" style="color: #059669;">${passCount} Batch</td>
+      <td colspan="3" class="kpi-val" style="color: #d97706;">${warningCount} Batch</td>
+      <td colspan="2" class="kpi-val" style="color: #dc2626;">${devCount} Batch</td>
+    </tr>
+    <tr style="height: 12px;">
+      <td colspan="14" style="border: none; background: transparent;"></td>
+    </tr>
+    <thead>
+      <tr>
+        <th>No</th>
+        <th>ID Batch</th>
+        <th>Nama Cabang</th>
+        <th>Waktu Pengujian</th>
+        <th>Menu Masakan</th>
+        <th>Kategori</th>
+        <th>Skor (0-100)</th>
+        <th>Kekerasan TPA</th>
+        <th>Deviasi Warna (&Delta;E)</th>
+        <th>Pori Kerenyahan (Df)</th>
+        <th>Suhu Makanan</th>
+        <th>Status Mutu</th>
+        <th>Petugas QC</th>
+        <th>Catatan &amp; Preskripsi Tindakan Dapur</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${batches.map((b, idx) => {
+        const isEven = idx % 2 === 1;
+        const rowClass = isEven ? 'row-even' : '';
+        const statusClass = b.status === 'NORMAL' ? 'status-normal' : b.status === 'WARNING' ? 'status-warning' : 'status-dev';
+        const statusLabel = b.status === 'NORMAL' ? 'LOLOS (Standar)' : b.status === 'WARNING' ? 'PERINGATAN (Pantau)' : 'DEVIASI (Gagal)';
+        const scoreClass = b.crispnessScore >= 85 ? 'score-green' : b.crispnessScore >= 75 ? 'score-amber' : 'score-red';
+        const note = b.feedback || (b.status === 'NORMAL' ? 'Tekstur krispi & warna keemasan konsisten' : b.status === 'WARNING' ? 'Mendekati batas toleransi kerenyahan' : 'Tekstur alot/lembek atau warna terlalu gelap. Perlu kalibrasi api/minyak.');
+
+        return `
+        <tr class="${rowClass}">
+          <td class="text-center">${idx + 1}</td>
+          <td class="text-center font-mono"><strong>${escapeHtml(b.id)}</strong></td>
+          <td class="text-left"><strong>${escapeHtml(b.branchName)}</strong></td>
+          <td class="text-center">${escapeHtml(b.timestamp)}</td>
+          <td class="text-left"><strong>${escapeHtml(b.sampleName)}</strong></td>
+          <td class="text-center">${escapeHtml(b.category)}</td>
+          <td class="${scoreClass}">${b.crispnessScore}</td>
+          <td class="text-right font-mono">${b.hardnessN} N</td>
+          <td class="text-right font-mono">${b.deltaE}</td>
+          <td class="text-right font-mono">${b.df}</td>
+          <td class="text-right font-mono">${b.tempC} &deg;C</td>
+          <td class="${statusClass}">${statusLabel}</td>
+          <td class="text-left">${escapeHtml(b.operator || 'Staff QC Cabang')}</td>
+          <td class="text-left">${escapeHtml(note)}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+    <tfoot>
+      <tr style="background-color: #f1f5f9; font-weight: bold;">
+        <td colspan="6" class="text-left" style="padding: 9px 10px;">RATA-RATA SKOR KONSISTENSI SELURUH SAMPEL</td>
+        <td class="text-center" style="color: #0f766e; font-size: 11pt;">${avgScore}</td>
+        <td colspan="7" class="text-left" style="color: #475569;">Kesimpulan Audit: ${complianceRate >= 80 ? 'MEMENUHI SYARAT AUDIT CPPOB BPOM RI' : 'PERLU TINDAKAN KOREKTIF PADA PROSES GORENG'}</td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>`;
+
+    const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Rekam_Mutu_RASA_AI_${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    onNotify?.({
+      type: 'NORMAL',
+      title: '📊 Rekam Mutu Excel Berhasil Diunduh',
+      message: `Tabel rekam mutu bergaris rapi & berwarna (${batches.length} batch) telah diunduh dalam format Microsoft Excel (.xls).`
+    });
+  };
+
+  // Export CSV Report (Clean, balanced 14-column structure with UTF-8 BOM)
   const handleExportCSV = () => {
     if (!batches || batches.length === 0) {
       alert("Belum ada data batch untuk diunduh.");
@@ -106,21 +308,26 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
     const passCount = batches.filter(b => b.status === 'NORMAL').length;
     const warningCount = batches.filter(b => b.status === 'WARNING').length;
     const devCount = batches.filter(b => b.status === 'DEVIATION').length;
-    const complianceRate = Math.round((passCount / totalCount) * 100);
+    const complianceRate = totalCount > 0 ? Math.round((passCount / totalCount) * 100) : 100;
 
     const escapeCsv = (val: any) => {
       const s = val === null || val === undefined ? '' : String(val);
       return `"${s.replace(/"/g, '""')}"`;
     };
 
-    // Metadata lines at the top of the file
-    const metadataLines = [
-      ['sep=,'],
-      [escapeCsv('LAPORAN RESMI REKAM MUTU & KONSISTENSI TEKSTUR PANGAN (RASA AI)')],
-      [escapeCsv('Standar Acuan: SNI 7388:2009 & CPPOB BPOM RI No. 22/2021 (Klausul 8 & 14)')],
-      [escapeCsv(`Waktu Pengunduhan: ${exportDateStr}`)],
-      [escapeCsv(`Ringkasan: Total Batch: ${totalCount} | Lolos Standar: ${passCount} (${complianceRate}%) | Perlu Perhatian: ${warningCount} | Deviasi: ${devCount}`)],
-      [] // empty row before table
+    // Pad row with empty cells up to 14 columns so CSV column counts are always perfectly uniform
+    const padRow = (firstCell: string) => {
+      const row = [escapeCsv(firstCell)];
+      while (row.length < 14) row.push('""');
+      return row;
+    };
+
+    const metadataRows = [
+      padRow('LAPORAN RESMI REKAM MUTU & KONSISTENSI TEKSTUR PANGAN (RASA AI)'),
+      padRow('Standar Acuan: SNI 7388:2009 & CPPOB BPOM RI No. 22/2021 (Klausul 8 & 14)'),
+      padRow(`Waktu Pengunduhan: ${exportDateStr}`),
+      padRow(`Ringkasan: Total Batch: ${totalCount} | Lolos: ${passCount} (${complianceRate}%) | Perlu Perhatian: ${warningCount} | Deviasi: ${devCount}`),
+      padRow('') // blank spacer row with 14 empty columns
     ];
 
     const headers = [
@@ -136,8 +343,8 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
       'Pori Kerenyahan (Df)',
       'Suhu Makanan (°C)',
       'Status Mutu',
-      'Petugas / Operator',
-      'Catatan QC & Keterangan'
+      'Petugas QC',
+      'Catatan & Rekomendasi Preskriptif'
     ].map(escapeCsv);
 
     const dataRows = batches.map((b, idx) => {
@@ -145,9 +352,9 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
                          b.status === 'WARNING' ? 'PERINGATAN (Perlu Perhatian)' :
                          'DEVIASI (Gagal Standar)';
       
-      const note = b.status === 'NORMAL' ? 'Tekstur krispi & warna keemasan sempurna' :
+      const note = b.feedback || (b.status === 'NORMAL' ? 'Tekstur krispi & warna keemasan sempurna' :
                    b.status === 'WARNING' ? 'Mendekati batas toleransi kerenyahan' :
-                   'Tekstur terlalu alot/gosong atau lembek. Perlu kalibrasi api/minyak.';
+                   'Tekstur terlalu alot/gosong atau lembek. Perlu kalibrasi api/minyak.');
 
       return [
         idx + 1,
@@ -163,12 +370,12 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
         `${b.tempC} °C`,
         statusText,
         b.operator || 'Staff QC',
-        b.feedback || note
+        note
       ].map(escapeCsv);
     });
 
     const csvContent = [
-      ...metadataLines.map(row => row.join(',')),
+      ...metadataRows.map(row => row.join(',')),
       headers.join(','),
       ...dataRows.map(row => row.join(','))
     ].join('\r\n');
@@ -186,8 +393,8 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
 
     onNotify?.({
       type: 'NORMAL',
-      title: '📥 Rekam Mutu Berhasil Diunduh',
-      message: `Laporan rekam mutu CPPOB & SNI (${batches.length} batch) telah diunduh dalam format Excel (CSV).`
+      title: '📥 Rekam Mutu CSV Berhasil Diunduh',
+      message: `Data rekam mutu (${batches.length} batch) telah diunduh dalam format CSV terstruktur 14 kolom.`
     });
   };
 
@@ -309,14 +516,74 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition-all"
-            title="Unduh Rekam Mutu Digital untuk SNI/BPOM/HACCP"
-          >
-            <Download className="w-3.5 h-3.5 text-teal-400" />
-            <span className="hidden sm:inline">Unduh Rekam Mutu</span>
-          </button>
+          {/* Export Dropdown Menu */}
+          <div className="relative" ref={exportDropdownRef}>
+            <div className="inline-flex rounded-xl shadow-sm border border-slate-700/80 bg-slate-900 overflow-hidden">
+              <button
+                onClick={handleExportExcel}
+                disabled={batches.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-300 hover:text-white hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Unduh Rekam Mutu Bergaris Rapi & Berwarna (Format Excel .xls)"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-teal-400" />
+                <span className="hidden sm:inline">Unduh Rekam Mutu (Excel)</span>
+                <span className="sm:hidden">Excel</span>
+              </button>
+              <button
+                onClick={() => setShowExportDropdown(prev => !prev)}
+                disabled={batches.length === 0}
+                className="px-2 py-2 border-l border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-all disabled:opacity-50"
+                title="Pilih Format Unduh (Excel / CSV)"
+                aria-label="Pilihan format ekspor"
+              >
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showExportDropdown ? 'rotate-180 text-teal-400' : ''}`} />
+              </button>
+            </div>
+
+            {showExportDropdown && (
+              <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 p-2 space-y-1 backdrop-blur-xl">
+                <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Pilih Format Rekam Mutu
+                </div>
+                <button
+                  onClick={() => {
+                    handleExportExcel();
+                    setShowExportDropdown(false);
+                  }}
+                  className="w-full flex items-start gap-2.5 p-2 rounded-lg hover:bg-slate-800 text-left transition-colors group"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-teal-400 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>Microsoft Excel (.xls)</span>
+                      <span className="text-[9px] bg-teal-950 text-teal-300 border border-teal-800 px-1.5 py-0.5 rounded font-semibold">Rapi & Berwarna</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                      Tabel bergaris rapi, kolom pas, warna status hijau/kuning/merah, siap cetak audit CPPOB/SNI.
+                    </p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    handleExportCSV();
+                    setShowExportDropdown(false);
+                  }}
+                  className="w-full flex items-start gap-2.5 p-2 rounded-lg hover:bg-slate-800 text-left transition-colors group"
+                >
+                  <Download className="w-4 h-4 text-slate-400 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>File CSV Baku (.csv)</span>
+                      <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-medium">14 Kolom Pas</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                      Format data koma standar dengan UTF-8 BOM untuk olah data teknis atau database.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -611,16 +878,17 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
                 </button>
               )}
               <button
-                onClick={handleExportCSV}
+                onClick={handleExportExcel}
                 disabled={batches.length === 0}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-slate-950 text-xs font-bold rounded-lg transition-all ${
                   batches.length === 0 
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                    : 'bg-teal-600 hover:bg-teal-500'
+                    : 'bg-teal-500 hover:bg-teal-400'
                 }`}
+                title="Ekspor Arsip Rekam Mutu Lengkap & Rapi (Format Excel .xls)"
               >
-                <FileCheck2 className="w-3.5 h-3.5" />
-                <span>Ekspor Arsip SNI / BPOM MD</span>
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Ekspor Arsip Excel (.xls)</span>
               </button>
             </div>
           </div>
