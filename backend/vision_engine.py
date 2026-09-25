@@ -63,22 +63,52 @@ def assess_image_quality(
     steam_haze_ratio = float(np.mean(haze_patch > 180))
     low_grad_ratio = float(np.mean(grad_mag < 10.0))
 
+    # 3. Human Face Rejection (OpenCV Haar Cascade)
+    is_face = False
+    try:
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
+        if len(faces) > 0:
+            is_face = True
+    except Exception:
+        pass
+
+    # 4. Color Spectrum & Lighting Check (Food vs Cold Non-Food)
+    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+    avg_l = float(np.mean(lab[:, :, 0]))
+    avg_b = float(np.mean(lab[:, :, 2])) # In OpenCV Lab: 128 is neutral, >128 is yellow
+    avg_b_centered = avg_b - 128.0
+
+    is_too_dark = avg_l < 25.0
+    is_too_bright = avg_l > 240.0
+    is_cold_non_food = avg_b_centered < -5.0 # Strongly blue
+
     is_blurry = blur_score < blur_threshold
     is_steamy = (steam_haze_ratio > steam_haze_threshold) or (is_blurry and low_grad_ratio > 0.85)
 
-    is_valid = not (is_blurry or is_steamy)
+    is_valid = not (is_blurry or is_steamy or is_face or is_too_dark or is_too_bright or is_cold_non_food)
     rejection_reason = None
 
     if not is_valid:
-        if is_steamy:
+        if is_face:
+            rejection_reason = "Wajah Manusia Terdeteksi: Sistem RASA AI dikhususkan untuk inspeksi mutu pangan olahan (keripik, ayam goreng, pastry, dsb.). Harap foto makanan Anda."
+        elif is_steamy:
             rejection_reason = "Lensa Beruap / Berembun Panas: Bersihkan lensa kamera dan beri jarak uap dari wajan/piring sebelum foto ulang."
         elif is_blurry:
             rejection_reason = "Foto Buram / Gerak (Motion Blur): Tahan posisi kamera dengan stabil dan pastikan flash aktif."
+        elif is_too_dark:
+            rejection_reason = "Foto Terlalu Gelap: Objek makanan tidak terlihat dengan jelas. Pastikan pencahayaan cukup."
+        elif is_too_bright:
+            rejection_reason = "Foto Terlalu Terang / Silau: Lensa terkena cahaya berlebih atau mengarah ke permukaan putih polos."
+        elif is_cold_non_food:
+            rejection_reason = "Bukan Objek Makanan: Terdeteksi spektrum warna dingin non-pangan (kebiruan/layar). Makanan olahan memiliki pigmen hangat."
 
     return {
         "is_valid": is_valid,
         "blur_score": round(blur_score, 2),
         "is_steamy": is_steamy,
+        "is_face": is_face,
         "steam_haze_ratio": round(steam_haze_ratio, 3),
         "low_grad_ratio": round(low_grad_ratio, 3),
         "rejection_reason": rejection_reason

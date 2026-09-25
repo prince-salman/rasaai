@@ -1,4 +1,4 @@
-import { LabValues, VisionAnalysisResult, QualityStatus, FoodProfile } from '../types';
+import { LabValues, VisionAnalysisResult, QualityStatus, FoodProfile, FoodValidationResult } from '../types';
 
 // Convert RGB (0..255) to CIE-Lab (D65, 2?)
 export function rgbToCieLab(r: number, g: number, b: number): LabValues {
@@ -250,4 +250,163 @@ export function runDualEngineAnalysis(
     sniStandardName: profile.sniStandard,
     cppobClause: 'Standar Mutu Pangan & Keterlacakan'
   };
+}
+
+/**
+ * Validates whether the image on the canvas is a valid food/culinary sample
+ * Rejects: human faces, selfies, skin, non-food cold colors (blue/cyan screens), blank walls, and extreme lighting
+ */
+export async function validateFoodSample(
+  canvas: HTMLCanvasElement | null,
+  imageData: ImageData
+): Promise<FoodValidationResult> {
+  const width = imageData.width;
+  const height = imageData.height;
+  const data = imageData.data;
+  const totalPixels = width * height;
+
+  // 1. Hardware / Browser Native Face Detector API (Chromium / Chrome / Android)
+  if (canvas && typeof (window as any).FaceDetector === 'function') {
+    try {
+      const faceDetector = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 3 });
+      const faces = await faceDetector.detect(canvas);
+      if (faces && faces.length > 0) {
+        return {
+          isValid: false,
+          errorType: 'FACE_DETECTED',
+          title: 'Wajah Manusia Terdeteksi!',
+          reason: 'Kamera mendeteksi foto wajah atau orang, bukan sampel makanan kuliner.',
+          suggestion: 'Arahkan kamera khusus ke makanan gorengan, keripik, atau pastry yang sedang diuji.'
+        };
+      }
+    } catch {
+      // Fallback to chromatic & biometric rules below
+    }
+  }
+
+  // 2. Pixel Statistics: Luminance, Variance, Skin-tones, Color distribution
+  let sumL = 0;
+  let sumR = 0, sumG = 0, sumB = 0;
+  let skinPixels = 0;
+  let coldPixels = 0;
+  let pureWhitePixels = 0;
+  let pureBlackPixels = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    sumL += lum;
+    sumR += r;
+    sumG += g;
+    sumB += b;
+
+    if (lum < 16) pureBlackPixels++;
+    if (lum > 242) pureWhitePixels++;
+
+    // Human Skin Chromatic Rule (Peer et al. & Kovac et al.)
+    // R > 95, G > 40, B > 20, max - min > 15, |R - G| > 15, R > G, R > B
+    const maxVal = Math.max(r, g, b);
+    const minVal = Math.min(r, g, b);
+    const isSkinRgb = (r > 95 && g > 40 && b > 20 && (maxVal - minVal) > 15 && Math.abs(r - g) > 15 && r > g && r > b);
+
+    // YCbCr skin model (Chai & Ngan)
+    const cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
+    const cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
+    const isSkinYCbCr = cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173;
+
+    // Distinguish human skin from deep-golden fried batter:
+    // Fried crust has intense golden/yellow (b* > 28, or (r+g)/2 - b > 55 with high contrast),
+    // whereas human skin is soft beige/pink with (r - b) < 50
+    const isIntenseGoldenBatter = (r > 130 && g > 90 && b < 70 && (r - b) > 55);
+
+    if (isSkinRgb && isSkinYCbCr && !isIntenseGoldenBatter) {
+      skinPixels++;
+    }
+
+    // Cold / Non-food spectrum: strong blue dominance or cold gray screen
+    if ((b > r + 15 && b > g + 10) || (b > 130 && r < 90 && g < 110)) {
+      coldPixels++;
+    }
+  }
+
+  const avgLum = sumL / totalPixels;
+  const avgR = sumR / totalPixels;
+  const avgG = sumG / totalPixels;
+  const avgB = sumB / totalPixels;
+
+  const skinRatio = skinPixels / totalPixels;
+  const coldRatio = coldPixels / totalPixels;
+  const blackRatio = pureBlackPixels / totalPixels;
+  const whiteRatio = pureWhitePixels / totalPixels;
+
+  // Compute variance for flatness check
+  let varianceSum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    varianceSum += (lum - avgLum) * (lum - avgLum);
+  }
+  const variance = varianceSum / totalPixels;
+
+  // Convert average to CIE-Lab
+  const avgLab = rgbToCieLab(Math.round(avgR), Math.round(avgG), Math.round(avgB));
+
+  // CHECK 1: Extreme Lightness (Too Dark / Camera Blocked)
+  if (avgLum < 18 || blackRatio > 0.85) {
+    return {
+      isValid: false,
+      errorType: 'TOO_DARK',
+      title: 'Pencahayaan Terlalu Gelap',
+      reason: 'Lensa kamera tertutup atau pencahayaan sangat minim (L* < 18).',
+      suggestion: 'Pastikan pencahayaan cukup atau nyalakan lampu chamber/flash.'
+    };
+  }
+
+  // CHECK 2: Extreme Lightness (Too Bright / White Wall / Blank Paper)
+  if (avgLum > 238 || whiteRatio > 0.85) {
+    return {
+      isValid: false,
+      errorType: 'TOO_BRIGHT',
+      title: 'Objek Terlalu Terang / Silau',
+      reason: 'Lensa terkena pantulan cahaya putih ekstrem atau mengarah ke kertas/dinding putih polos.',
+      suggestion: 'Letakkan makanan di atas wadah piring dan hindari pantulan cahaya langsung.'
+    };
+  }
+
+  // CHECK 3: Blank Texture / No Contours
+  if (variance < 60) {
+    return {
+      isValid: false,
+      errorType: 'BLANK_TEXTURE',
+      title: 'Tidak Ada Makanan Terdeteksi',
+      reason: 'Gambar terlalu polos atau tidak memiliki tekstur/pori-pori makanan (dinding/kain polos).',
+      suggestion: 'Arahkan fokus kamera ke permukaan gorengan atau makanan olahan.'
+    };
+  }
+
+  // CHECK 4: Human Face / Skin Tone Detection
+  // If skin pixel ratio is high (> 24%)
+  if (skinRatio > 0.24) {
+    return {
+      isValid: false,
+      errorType: 'FACE_DETECTED',
+      title: 'Wajah Manusia / Kulit Terdeteksi!',
+      reason: 'Sistem RASA AI mendeteksi foto wajah atau kulit manusia, bukan sampel makanan kuliner.',
+      suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, pastry, dsb.) untuk dianalisis.'
+    };
+  }
+
+  // CHECK 5: Non-Food Colors (Dominant Blue, Cyan, Cold Screen)
+  if (coldRatio > 0.25 || (avgLab.b < 4 && avgB > avgR)) {
+    return {
+      isValid: false,
+      errorType: 'NOT_FOOD_COLOR',
+      title: 'Bukan Objek Makanan Kuliner',
+      reason: 'Terdeteksi warna dingin non-pangan (kebiruan/cyan/layar monitor). Makanan gorengan memiliki pigmen hangat (kuning keemasan / cokelat).',
+      suggestion: 'Pastikan objek yang difoto adalah produk pangan/kuliner asli.'
+    };
+  }
+
+  return { isValid: true };
 }

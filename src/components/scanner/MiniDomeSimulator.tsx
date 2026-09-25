@@ -23,9 +23,10 @@ import {
   ExternalLink,
   X
 } from 'lucide-react';
-import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord } from '../../types';
+import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord, FoodValidationResult } from '../../types';
 import { FOOD_PROFILES } from '../../data/initialData';
-import { runDualEngineAnalysis } from '../../utils/visionEngine';
+import { runDualEngineAnalysis, validateFoodSample } from '../../utils/visionEngine';
+import { playDeviationAlert } from '../../utils/audioAlert';
 
 interface MiniDomeSimulatorProps {
   branches: Branch[];
@@ -58,6 +59,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
   const [isSynced, setIsSynced] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showTechDetails, setShowTechDetails] = useState(false);
+  const [foodValidationError, setFoodValidationError] = useState<FoodValidationResult | null>(null);
 
   // Close print modal on Escape key
   useEffect(() => {
@@ -175,6 +177,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
 
     stopCamera();
     setAnalysisResult(null);
+    setFoodValidationError(null);
     setIsSynced(false);
   };
 
@@ -236,6 +239,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     setIsScanning(true);
     setScanProgress(0);
     setAnalysisResult(null);
+    setFoodValidationError(null);
     setIsSynced(false);
 
     const canvas = canvasRef.current;
@@ -251,13 +255,13 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       const progress = Math.min(100, Math.round((elapsed / duration) * 100));
       setScanProgress(progress);
 
-      if (progress < 20) {
-        setScanPhaseText('📸 Mengambil foto sampel gorengan...');
-      } else if (progress < 45) {
+      if (progress < 25) {
+        setScanPhaseText('🔍 Memeriksa keabsahan sampel makanan (filter anti-wajah & objek non-pangan)...');
+      } else if (progress < 50) {
         setScanPhaseText('🎨 Memeriksa warna dan tingkat kematangan kerak...');
-      } else if (progress < 70) {
+      } else if (progress < 75) {
         setScanPhaseText('🔍 Memeriksa pori-pori dan tekstur kerenyahan...');
-      } else if (progress < 90) {
+      } else if (progress < 92) {
         setScanPhaseText('⚙️ Menghitung skor kerenyahan & keempukan...');
       } else {
         setScanPhaseText('✅ Menyimpan hasil pemeriksaan mutu...');
@@ -268,35 +272,48 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
         setIsScanning(false);
 
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const simTemp = Math.round((78.2 + (Math.random() * 2 - 1)) * 10) / 10;
-        const result = runDualEngineAnalysis(
-          imgData,
-          selectedProfile,
-          simTemp
-        );
-        setAnalysisResult(result);
 
-        const currentBranch = branches.find(b => b.id === activeBranchId) || branches[0];
-        const newRecord: BatchRecord = {
-          id: `BATCH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
-          branchId: currentBranch.id,
-          branchName: currentBranch.name,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' WIB',
-          sampleName: selectedProfile.name,
-          category: selectedProfile.category,
-          crispnessScore: result.crispnessIndex,
-          hardnessN: result.hardnessNewtons,
-          deltaE: result.deltaE,
-          df: result.fractalDimension,
-          tempC: result.infraredTempC,
-          browningIndex: result.browningIndex,
-          status: result.qualityStatus,
-          operator: 'Operator AIoT Cabang',
-          feedback: result.feedback
-        };
+        // Pre-Flight: Validasi ketat bahwa gambar adalah makanan kuliner (bukan wajah/orang/benda non-makanan)
+        validateFoodSample(canvas, imgData).then((validation) => {
+          if (!validation.isValid) {
+            setFoodValidationError(validation);
+            setAnalysisResult(null);
+            setIsSynced(false);
+            playDeviationAlert();
+            return;
+          }
 
-        onAddBatchRecord(newRecord);
-        setIsSynced(true);
+          setFoodValidationError(null);
+          const simTemp = Math.round((78.2 + (Math.random() * 2 - 1)) * 10) / 10;
+          const result = runDualEngineAnalysis(
+            imgData,
+            selectedProfile,
+            simTemp
+          );
+          setAnalysisResult(result);
+
+          const currentBranch = branches.find(b => b.id === activeBranchId) || branches[0];
+          const newRecord: BatchRecord = {
+            id: `BATCH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
+            branchId: currentBranch.id,
+            branchName: currentBranch.name,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' WIB',
+            sampleName: selectedProfile.name,
+            category: selectedProfile.category,
+            crispnessScore: result.crispnessIndex,
+            hardnessN: result.hardnessNewtons,
+            deltaE: result.deltaE,
+            df: result.fractalDimension,
+            tempC: result.infraredTempC,
+            browningIndex: result.browningIndex,
+            status: result.qualityStatus,
+            operator: 'Operator AIoT Cabang',
+            feedback: result.feedback
+          };
+
+          onAddBatchRecord(newRecord);
+          setIsSynced(true);
+        });
       }
     }, 75);
   };
@@ -309,6 +326,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       reader.onload = (event) => {
         setCustomImage(event.target?.result as string);
         setAnalysisResult(null);
+        setFoodValidationError(null);
         setIsSynced(false);
       };
       reader.readAsDataURL(file);
@@ -487,6 +505,21 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                 <div className="absolute inset-0 pointer-events-none z-20">
                   <div className="w-full h-1.5 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-[0_0_20px_#2dd4bf] absolute animate-laser"></div>
                   <div className="absolute inset-0 bg-teal-500/10 backdrop-blur-[1px] animate-pulse"></div>
+                </div>
+              )}
+
+              {/* Food Validation Error Overlay */}
+              {foodValidationError && (
+                <div className="absolute inset-0 z-30 bg-rose-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center space-y-2 animate-in fade-in">
+                  <div className="w-12 h-12 rounded-full bg-rose-600/30 border border-rose-500 flex items-center justify-center text-rose-400 shadow-lg">
+                    <XCircle className="w-7 h-7" />
+                  </div>
+                  <span className="text-xs font-black text-white uppercase tracking-wider bg-rose-950 px-2.5 py-0.5 rounded border border-rose-700">
+                    {foodValidationError.title || 'Bukan Foto Makanan!'}
+                  </span>
+                  <p className="text-[11px] text-rose-200 max-w-xs leading-tight">
+                    {foodValidationError.reason}
+                  </p>
                 </div>
               )}
 
@@ -988,6 +1021,65 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                 </button>
               </div>
 
+            </div>
+          ) : foodValidationError ? (
+            /* Rejection Card When Non-Food / Face is Detected */
+            <div className="bg-gradient-to-br from-rose-950/90 via-slate-900 to-rose-950/60 border-2 border-rose-500/80 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6 animate-in fade-in zoom-in-95">
+              <div className="flex items-start gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-rose-400 flex-shrink-0 shadow-lg shadow-rose-950/50">
+                  <XCircle className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider bg-rose-950 text-rose-300 border border-rose-700 px-2.5 py-0.5 rounded-full">
+                      Pemeriksaan Ditolak Sistem
+                    </span>
+                    <span className="text-xs text-rose-400 font-mono font-bold">STATUS: BUKAN MAKANAN</span>
+                  </div>
+                  <h3 className="text-xl font-black text-white">
+                    {foodValidationError.title || 'Foto Bukan Sampel Makanan!'}
+                  </h3>
+                  <p className="text-xs text-rose-200/90 leading-relaxed font-medium">
+                    {foodValidationError.reason}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-950/80 border border-rose-900/60 rounded-xl p-4 text-xs space-y-2.5">
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-rose-400" />
+                  <span>Petunjuk Standar Mutu RASA AI:</span>
+                </p>
+                <ul className="text-slate-300 space-y-1.5 list-disc list-inside leading-relaxed">
+                  <li><strong className="text-rose-300">{foodValidationError.suggestion || 'Arahkan kamera khusus ke sampel makanan olahan yang sedang diuji.'}</strong></li>
+                  <li>Sistem Computer Vision RASA AI dilengkapi <strong>filter biometrik wajah & spektrum kromatografi</strong> untuk menolak foto manusia, wajah/selfie, dan objek mati non-kuliner.</li>
+                  <li>Letakkan makanan olahan di atas wadah piring bersih dengan pencahayaan yang cukup.</li>
+                </ul>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFoodValidationError(null);
+                    setCustomImage(null);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg transition-all cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Foto Ulang Sampel Makanan</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFoodValidationError(null);
+                    setCustomImage(selectedProfile.sampleImage);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                >
+                  <span>Gunakan Sampel Acuan ({selectedProfile.name})</span>
+                </button>
+              </div>
             </div>
           ) : (
             /* Empty State */

@@ -81,3 +81,12 @@ export interface NotificationItem {
   score?: number;
   read?: boolean;
 }
+
+export interface FoodValidationResult {
+  isValid: boolean;
+  errorType?: 'FACE_DETECTED' | 'NOT_FOOD_COLOR' | 'TOO_DARK' | 'TOO_BRIGHT' | 'BLANK_TEXTURE';
+  title?: string;
+  reason?: string;
+  suggestion?: string;
+}
+
