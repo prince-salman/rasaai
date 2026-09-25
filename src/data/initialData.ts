@@ -45,11 +45,11 @@ export const INITIAL_BRANCHES: Branch[] = [
     id: 'cikarang',
     name: 'Cabang Cikarang',
     location: 'Kawasan Industri Jababeka',
-    lastScore: 74,
-    status: 'DEVIATION',
-    lastUpdate: '5 jam lalu',
+    lastScore: 89,
+    status: 'NORMAL',
+    lastUpdate: 'Baru saja',
     activeBatchesToday: 18,
-    recentDeviationsCount: 3 // Triggers 3-consecutive deviation alert
+    recentDeviationsCount: 0
   },
   {
     id: 'bandung',

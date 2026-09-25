@@ -42,6 +42,7 @@ interface QualityDashboardProps {
   setShowDeviationModal: (show: boolean) => void;
   onClearBatches?: () => void;
   onResetDemoBatches?: () => void;
+  onNotify?: (notif: { type: 'NORMAL' | 'WARNING' | 'DEVIATION'; title: string; message: string; score?: number }) => void;
 }
 
 export const QualityDashboard: React.FC<QualityDashboardProps> = ({
@@ -53,7 +54,8 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
   showDeviationModal,
   setShowDeviationModal,
   onClearBatches,
-  onResetDemoBatches
+  onResetDemoBatches,
+  onNotify
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'NORMAL' | 'WARNING' | 'DEVIATION'>('ALL');
@@ -181,7 +183,15 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+
+    onNotify?.({
+      type: 'NORMAL',
+      title: '📥 Rekam Mutu Berhasil Diunduh',
+      message: `Laporan rekam mutu CPPOB & SNI (${batches.length} batch) telah diunduh dalam format Excel (CSV).`
+    });
   };
+
+  const deviatingBranch = branches.find(b => b.recentDeviationsCount >= 3);
 
   return (
     <div className="space-y-6">
@@ -220,45 +230,47 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
         </div>
       </div>
 
-      {/* WhatsApp Deviation Alert Banner */}
-      <div className="bg-gradient-to-r from-rose-950/70 via-slate-900 to-amber-950/40 border border-rose-600/40 rounded-2xl p-4 shadow-lg flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-rose-900/60 border border-rose-500/50 flex items-center justify-center text-rose-400 flex-shrink-0">
-            <ShieldAlert className="w-5 h-5 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-rose-400 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-800">
-                Peringatan Dini QC Otomatis
-              </span>
-              <span className="text-[11px] text-slate-400">? Protokol Mitigasi Dapur</span>
+      {/* WhatsApp Deviation Alert Banner (Hanya muncul jika benar-benar ada cabang yang deviasi beruntun) */}
+      {deviatingBranch && (
+        <div className="bg-gradient-to-r from-rose-950/70 via-slate-900 to-amber-950/40 border border-rose-600/40 rounded-2xl p-4 shadow-lg flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-rose-900/60 border border-rose-500/50 flex items-center justify-center text-rose-400 flex-shrink-0">
+              <ShieldAlert className="w-5 h-5 animate-pulse" />
             </div>
-            <p className="text-sm font-semibold text-white mt-0.5">
-              Cabang Cikarang mendeteksi 3 batch berturut-turut di luar batas mutu (Skor 74 &lt; 80).
-            </p>
-            <p className="text-xs text-slate-400">
-              Notifikasi preskriptif telah terkirim via WhatsApp API ke Manajer Operasional dan Kepala Dapur.
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-rose-400 bg-rose-950/80 px-2 py-0.5 rounded border border-rose-800">
+                  Peringatan Dini QC Otomatis
+                </span>
+                <span className="text-[11px] text-slate-400">• Protokol Mitigasi Dapur</span>
+              </div>
+              <p className="text-sm font-semibold text-white mt-0.5">
+                {deviatingBranch.name} mendeteksi 3 batch berturut-turut di luar batas mutu (Skor {deviatingBranch.lastScore} &lt; 80).
+              </p>
+              <p className="text-xs text-slate-400">
+                Notifikasi preskriptif telah terkirim via WhatsApp API ke Manajer Operasional dan Kepala Dapur.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setShowDeviationModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md transition-all"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Lihat Log WhatsApp</span>
+            </button>
+            <button
+              onClick={onOpenScanner}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all border border-slate-700"
+            >
+              <span>Uji Kalibrasi Sampel</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => setShowDeviationModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md transition-all"
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>Lihat Log WhatsApp</span>
-          </button>
-          <button
-            onClick={onOpenScanner}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all border border-slate-700"
-          >
-            <span>Uji Kalibrasi Sampel</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Main Header corresponding to Lampiran L.1 */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">

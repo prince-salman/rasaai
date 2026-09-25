@@ -165,10 +165,10 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
           {filteredList.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-2">
-              <Bell className="w-8 h-8 opacity-40" />
-              <p className="text-xs">Tidak ada notifikasi pada kategori ini.</p>
-              <p className="text-[11px] text-slate-600">
-                Data batch baru dari seluruh cabang dapur akan otomatis masuk ke sini secara real-time.
+              <Bell className="w-8 h-8 opacity-40 text-teal-400" />
+              <p className="text-xs font-semibold text-slate-400">Belum ada riwayat notifikasi</p>
+              <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                Notifikasi dan alarm audio akan muncul secara <strong>real-time</strong> saat Anda memindai foto makanan atau menguji sampel batch di <strong>Simulator Kubah</strong>.
               </p>
             </div>
           ) : (

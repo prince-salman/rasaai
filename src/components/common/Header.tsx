@@ -175,19 +175,14 @@ export const Header: React.FC<HeaderProps> = ({
               </select>
             </div>
 
-            {/* Live IoT Toggle */}
-            <button
-              onClick={() => setIsLiveStreaming((prev: boolean) => !prev)}
-              title="Simulasi Feed MQTT Dapur Otomatis"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                isLiveStreaming
-                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-400'
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
+            {/* Realtime Standby Status Badge */}
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-emerald-950/60 border-emerald-500/40 text-emerald-400 select-none"
+              title="Sistem Siaga Real-Time: Notifikasi & Audio akan aktif secara real-time saat Anda memindai sampel makanan di Simulator Kubah"
             >
-              <Radio className={`w-3.5 h-3.5 ${isLiveStreaming ? 'text-emerald-400 animate-pulse' : 'text-slate-500'}`} />
-              <span className="hidden lg:inline">{isLiveStreaming ? 'Live IoT Aktif' : 'Live IoT Nonaktif'}</span>
-            </button>
+              <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span className="hidden lg:inline">Realtime Siaga</span>
+            </div>
 
             {/* Deviation Alert Bell */}
             <button

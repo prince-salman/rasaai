@@ -10,38 +10,7 @@ import { RealtimeToastContainer } from './components/notifications/RealtimeToast
 import { NotificationDrawer } from './components/notifications/NotificationDrawer';
 import { playSuccessChime, playWarningChime, playDeviationAlert } from './utils/audioAlert';
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 'NOTIF-01',
-    type: 'DEVIATION',
-    title: 'Peringatan Deviasi Mutu',
-    message: 'Cabang Cikarang: Kerak ayam terlalu keras dan gelap (Skor 62/100). Perlu kalibrasi api kompor segera.',
-    timestamp: '2 menit lalu',
-    branchName: 'Cabang Cikarang',
-    score: 62,
-    read: false
-  },
-  {
-    id: 'NOTIF-02',
-    type: 'WARNING',
-    title: 'Perhatian Suhu Minyak',
-    message: 'Cabang Kemang: Tekstur agak sedikit lembek (Skor 78/100). Suhu minyak drop saat bahan masuk.',
-    timestamp: '5 menit lalu',
-    branchName: 'Cabang Kemang',
-    score: 78,
-    read: false
-  },
-  {
-    id: 'NOTIF-03',
-    type: 'NORMAL',
-    title: 'Batch Lolos Standar Emas',
-    message: 'Cabang Kelapa Gading: Kerenyahan dan warna keemasan sempurna (Skor 92/100). Siap disajikan.',
-    timestamp: '8 menit lalu',
-    branchName: 'Cabang Kelapa Gading',
-    score: 92,
-    read: true
-  }
-];
+const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'roi'>('dashboard');
@@ -134,67 +103,36 @@ export const App: React.FC = () => {
     setNotifications([]);
   };
 
-  // Background Simulated Real-Time Live IoT Kitchen stream
-  useEffect(() => {
-    if (!isLiveStreaming) return;
+  // Real-Time Notification Trigger (for real user actions: export, clear, calibration)
+  const handleNotify = (item: {
+    type: 'NORMAL' | 'WARNING' | 'DEVIATION';
+    title: string;
+    message: string;
+    score?: number;
+    branchName?: string;
+  }) => {
+    const newItem: NotificationItem = {
+      id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      type: item.type,
+      title: item.title,
+      message: item.message,
+      timestamp: 'Baru saja',
+      branchName: item.branchName,
+      score: item.score,
+      read: false
+    };
 
-    const sampleDishes = [
-      { name: 'Ayam Goreng Krispi', cat: 'Ayam Krispi', baseHardness: 23.4 },
-      { name: 'Keripik Tempe Crispy', cat: 'Keripik / Olahan', baseHardness: 18.5 },
-      { name: 'Tahu Crispy Keemasan', cat: 'Tahu / Tempe', baseHardness: 17.2 },
-      { name: 'Pastry Risoles Krispi', cat: 'Pastry', baseHardness: 20.8 }
-    ];
+    if (item.type === 'DEVIATION') {
+      playDeviationAlert();
+    } else if (item.type === 'WARNING') {
+      playWarningChime();
+    } else {
+      playSuccessChime();
+    }
 
-    const interval = setInterval(() => {
-      // Pick random branch
-      const randomBranch = branches[Math.floor(Math.random() * branches.length)];
-      const randomDish = sampleDishes[Math.floor(Math.random() * sampleDishes.length)];
-      
-      // Realistic simulation: 75% Normal, 15% Warning, 10% Deviation
-      const rand = Math.random();
-      const isGood = rand > 0.25;
-      const isDev = rand < 0.10;
-
-      let crispness: number;
-      let hardness: number;
-      let status: 'NORMAL' | 'WARNING' | 'DEVIATION';
-
-      if (isDev) {
-        crispness = Math.round(58 + Math.random() * 12);
-        hardness = Math.round((randomDish.baseHardness + 11.5 + Math.random() * 4) * 10) / 10;
-        status = 'DEVIATION';
-      } else if (!isGood) {
-        crispness = Math.round(72 + Math.random() * 8);
-        hardness = Math.round((randomDish.baseHardness - 6.5 + Math.random() * 3) * 10) / 10;
-        status = 'WARNING';
-      } else {
-        crispness = Math.round(86 + Math.random() * 11);
-        hardness = Math.round((randomDish.baseHardness + (Math.random() * 2 - 1)) * 10) / 10;
-        status = 'NORMAL';
-      }
-
-      const simulatedRecord: BatchRecord = {
-        id: `BATCH-IOT-${Math.floor(1000 + Math.random() * 9000)}`,
-        branchId: randomBranch.id,
-        branchName: randomBranch.name,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' WIB',
-        sampleName: `${randomDish.name} (Live IoT)`,
-        category: randomDish.cat,
-        crispnessScore: crispness,
-        hardnessN: hardness,
-        deltaE: Math.round((2.0 + Math.random() * 4.0) * 10) / 10,
-        df: Math.round((1.78 + Math.random() * 0.12) * 100) / 100,
-        browningIndex: Math.round((55 + Math.random() * 15) * 10) / 10,
-        tempC: Math.round((75 + Math.random() * 6) * 10) / 10,
-        status,
-        operator: 'AIoT Telemetry Sensor'
-      };
-
-      handleAddBatchRecord(simulatedRecord);
-    }, 7500); // Live real-time stream every 7.5s
-
-    return () => clearInterval(interval);
-  }, [isLiveStreaming, branches]);
+    setNotifications(prev => [newItem, ...prev.slice(0, 29)]);
+    setActiveToast(newItem);
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col text-slate-100 selection:bg-teal-500 selection:text-slate-950 font-sans print:bg-white print:text-slate-900 print:min-h-0">
@@ -246,6 +184,7 @@ export const App: React.FC = () => {
             setShowDeviationModal={setShowNotificationDrawer}
             onClearBatches={handleClearBatches}
             onResetDemoBatches={handleResetDemoBatches}
+            onNotify={handleNotify}
           />
         )}
 
