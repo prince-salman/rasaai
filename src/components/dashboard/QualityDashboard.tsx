@@ -689,7 +689,10 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
 
       {/* WhatsApp Deviation Simulation Modal */}
       {showDeviationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setShowDeviationModal(false); }}
+          className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+        >
           <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-emerald-400">

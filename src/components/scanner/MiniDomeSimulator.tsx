@@ -20,7 +20,8 @@ import {
   SwitchCamera,
   ChevronDown,
   ChevronUp,
-  ExternalLink
+  ExternalLink,
+  X
 } from 'lucide-react';
 import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord } from '../../types';
 import { FOOD_PROFILES } from '../../data/initialData';
@@ -57,6 +58,17 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
   const [isSynced, setIsSynced] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showTechDetails, setShowTechDetails] = useState(false);
+
+  // Close print modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showPrintModal) {
+        setShowPrintModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPrintModal]);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1017,14 +1029,26 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       {showPrintModal && analysisResult && (
         <div 
           id="print-modal-container"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 overflow-y-auto print:static print:inset-auto print:bg-white print:p-0 print:overflow-visible print:block"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowPrintModal(false);
+          }}
+          className="fixed inset-0 z-[100] overflow-y-auto bg-slate-950/95 backdrop-blur-md p-3 sm:p-6 flex justify-center items-start print:static print:inset-auto print:bg-white print:p-0 print:overflow-visible print:block"
         >
           <div 
             id="printable-audit-certificate"
-            className="bg-white text-slate-900 rounded-2xl max-w-2xl w-full p-8 shadow-2xl space-y-6 print:m-0 print:p-6 print:max-w-none print:shadow-none print:rounded-none print:border print:border-slate-300 print:space-y-4"
+            className="relative bg-white text-slate-900 rounded-2xl max-w-2xl w-full p-6 sm:p-8 my-4 sm:my-8 shadow-2xl space-y-6 print:m-0 print:p-6 print:max-w-none print:shadow-none print:rounded-none print:border print:border-slate-300 print:space-y-4"
           >
+            {/* Close Button at Top-Right */}
+            <button
+              type="button"
+              onClick={() => setShowPrintModal(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors print:hidden cursor-pointer"
+              title="Tutup (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
             
-            <div className="border-b-2 border-slate-900 pb-4 flex items-start justify-between">
+            <div className="border-b-2 border-slate-900 pb-4 flex items-start justify-between pr-8">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-black text-xl tracking-tight text-slate-950">RASA AI</span>
@@ -1097,7 +1121,11 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                     <td className="p-2.5 font-semibold">Kematangan & Kecerahan Warna</td>
                     <td className="p-2.5 font-mono">Tingkat Cerah: {analysisResult.cielab.l}</td>
                     <td className="p-2.5 font-mono text-slate-600">Kuning Keemasan</td>
-                    <td className="p-2.5 text-center font-bold text-emerald-700">
+                    <td className={`p-2.5 text-center font-bold ${
+                      analysisResult.cielab.l >= 48 && analysisResult.cielab.l <= 70
+                        ? 'text-emerald-700'
+                        : 'text-rose-700'
+                    }`}>
                       {analysisResult.cielab.l < 48 ? 'TERLALU COKELAT' : analysisResult.cielab.l > 70 ? 'PUCAT' : 'PAS'}
                     </td>
                   </tr>
@@ -1144,7 +1172,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               <button
                 type="button"
                 onClick={() => setShowPrintModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-300"
               >
                 Tutup
               </button>
