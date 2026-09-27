@@ -93,7 +93,9 @@ export interface FoodValidationResult {
 export interface FoodClassificationResult {
   detectedProfileId: string;
   foodName: string;
+  category?: string;
   confidence: number;
   reason: string;
+  dynamicProfile?: FoodProfile;
 }
 

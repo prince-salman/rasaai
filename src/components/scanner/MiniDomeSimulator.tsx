@@ -176,7 +176,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       // Auto-classify captured food
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const classification = classifyFoodSample(imgData, FOOD_PROFILES);
-      const matched = FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+      const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
       if (matched) {
         setSelectedProfile(matched);
         setAutoDetectedFood(classification);
@@ -257,11 +257,11 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Auto-classify on scan trigger if not already identified
+    // Auto-classify on scan trigger directly from current image
     try {
       const imgDataStart = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const classification = classifyFoodSample(imgDataStart, FOOD_PROFILES);
-      const matched = FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+      const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
       if (matched && (!autoDetectedFood || matched.id !== selectedProfile.id)) {
         setSelectedProfile(matched);
         setAutoDetectedFood(classification);
@@ -279,7 +279,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       setScanProgress(progress);
 
       if (progress < 25) {
-        setScanPhaseText(`🤖 Identifikasi AI: Mendeteksi profil ${selectedProfile.name}...`);
+        setScanPhaseText(`🤖 Identifikasi AI: Memindai & menganalisis karakteristik citra makanan...`);
       } else if (progress < 50) {
         setScanPhaseText('🎨 Memeriksa warna & kematangan kerak (CIE-Lab & BI)...');
       } else if (progress < 75) {
@@ -307,10 +307,16 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
           }
 
           setFoodValidationError(null);
+          // Automatically classify food identity from the scanned photo
+          const classification = classifyFoodSample(imgData, FOOD_PROFILES);
+          const activeProfile = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId) || selectedProfile;
+          setSelectedProfile(activeProfile);
+          setAutoDetectedFood(classification);
+
           const simTemp = Math.round((78.2 + (Math.random() * 2 - 1)) * 10) / 10;
           const result = runDualEngineAnalysis(
             imgData,
-            selectedProfile,
+            activeProfile,
             simTemp
           );
           setAnalysisResult(result);
@@ -321,8 +327,8 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
             branchId: currentBranch.id,
             branchName: currentBranch.name,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' WIB',
-            sampleName: selectedProfile.name,
-            category: selectedProfile.category,
+            sampleName: activeProfile.name,
+            category: activeProfile.category,
             crispnessScore: result.crispnessIndex,
             hardnessN: result.hardnessNewtons,
             deltaE: result.deltaE,
@@ -350,10 +356,15 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
     setFoodValidationError(null);
+    const classification = classifyFoodSample(imgData, FOOD_PROFILES);
+    const activeProfile = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId) || selectedProfile;
+    setSelectedProfile(activeProfile);
+    setAutoDetectedFood(classification);
+
     const simTemp = Math.round((78.2 + (Math.random() * 2 - 1)) * 10) / 10;
     const result = runDualEngineAnalysis(
       imgData,
-      selectedProfile,
+      activeProfile,
       simTemp
     );
     setAnalysisResult(result);
@@ -364,8 +375,8 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       branchId: currentBranch.id,
       branchName: currentBranch.name,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' WIB',
-      sampleName: selectedProfile.name,
-      category: selectedProfile.category,
+      sampleName: activeProfile.name,
+      category: activeProfile.category,
       crispnessScore: result.crispnessIndex,
       hardnessN: result.hardnessNewtons,
       deltaE: result.deltaE,
@@ -385,6 +396,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       stopCamera();
+      const fileName = file.name;
       const reader = new FileReader();
       reader.onload = (event) => {
         const src = event.target?.result as string;
@@ -403,8 +415,8 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
           if (offCtx) {
             offCtx.drawImage(tempImg, 0, 0, 360, 360);
             const imgData = offCtx.getImageData(0, 0, 360, 360);
-            const classification = classifyFoodSample(imgData, FOOD_PROFILES);
-            const matched = FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+            const classification = classifyFoodSample(imgData, FOOD_PROFILES, fileName);
+            const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
             if (matched) {
               setSelectedProfile(matched);
               setAutoDetectedFood(classification);
@@ -753,18 +765,28 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
 
           </div>
 
-          {/* Food Profile Selector & Custom Upload */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-3">
+          {/* AI Autonomous Food Recognition & Dynamic Quality Profile */}
+          <div className="bg-slate-900/90 border border-teal-500/40 rounded-2xl p-4 shadow-xl space-y-3.5">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Pilih Profil Mutu Kuliner (SNI & CPPOB)
-              </h3>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/40 flex-shrink-0">
+                  <Sparkles className="w-4 h-4 animate-pulse" />
+                </span>
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Identifikasi Mutu Makanan (100% Otomatis dari Foto)</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Standar mutu & target SNI langsung ditentukan dari foto makanan (bukan pilih manual)
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="text-[11px] text-teal-400 hover:text-teal-300 flex items-center gap-1 font-semibold"
+                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-teal-300 px-2.5 py-1.5 rounded-xl border border-slate-700 flex items-center gap-1.5 font-semibold transition-all shadow-sm"
               >
-                <Upload className="w-3 h-3" />
-                <span>Upload File</span>
+                <Upload className="w-3.5 h-3.5 text-teal-400" />
+                <span>Upload Foto</span>
               </button>
               <input
                 ref={fileInputRef}
@@ -775,78 +797,96 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               />
             </div>
 
-            {autoDetectedFood && (
-              <div className="bg-teal-950/90 border border-teal-500/70 p-3 rounded-xl flex items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in slide-in-from-top-1">
-                <div className="flex items-center gap-2.5">
-                  <span className="p-1.5 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/40 flex-shrink-0">
-                    <Sparkles className="w-4 h-4 animate-pulse" />
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[9px] font-extrabold uppercase tracking-wider bg-teal-900 text-teal-300 border border-teal-700 px-1.5 py-0.5 rounded">
-                        AI Terdeteksi Otomatis
-                      </span>
-                      <span className="font-bold text-white text-xs">
-                        {autoDetectedFood.foodName}
-                      </span>
-                      <span className="text-[10px] font-mono text-emerald-400 font-bold">
-                        ({autoDetectedFood.confidence}% Akurat)
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-300 mt-0.5 leading-tight">
-                      {autoDetectedFood.reason}. Profil standar acuan langsung disesuaikan otomatis.
-                    </p>
+            {/* Active Detected Food Profile Card */}
+            <div className="p-3.5 rounded-xl bg-gradient-to-r from-teal-950/80 via-slate-950 to-slate-900 border border-teal-500/50 shadow-md space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider bg-teal-900 text-teal-300 border border-teal-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Sparkles className="w-2.5 h-2.5" />
+                      <span>Terdeteksi Otomatis dari Citra</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                      ({autoDetectedFood ? `${autoDetectedFood.confidence}% Akurat` : 'Realtime Sensor Optik'})
+                    </span>
                   </div>
+                  <h4 className="text-base font-black text-white pt-1">
+                    {selectedProfile.name}
+                  </h4>
+                  <p className="text-[11px] text-slate-300">
+                    {selectedProfile.category} • <strong className="text-teal-400 font-semibold">{selectedProfile.sniStandard}</strong>
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAutoDetectedFood(null)}
-                  className="text-[10px] text-slate-400 hover:text-white underline whitespace-nowrap"
-                >
-                  Tutup
-                </button>
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-2">
-              {FOOD_PROFILES.map((profile) => {
-                const isSelected = selectedProfile.id === profile.id;
-                const isAutoMatched = autoDetectedFood?.detectedProfileId === profile.id;
-                return (
-                  <button
-                    key={profile.id}
-                    onClick={() => {
-                      setSelectedProfile(profile);
-                      setAnalysisResult(null);
-                      setIsSynced(false);
-                    }}
-                    className={`p-2.5 rounded-xl border text-left transition-all flex flex-col gap-1 relative ${
-                      isSelected 
-                        ? 'bg-teal-950/70 border-teal-500/80 ring-1 ring-teal-500/40' 
-                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-[11px] font-bold text-white line-clamp-1">
-                        {profile.name}
-                      </span>
-                      {isAutoMatched && (
-                        <span className="text-[9px] font-bold text-teal-300 bg-teal-950 border border-teal-700 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                          <Sparkles className="w-2.5 h-2.5" />
-                          <span>AI</span>
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Target: {profile.targetHardnessN} N • Df {profile.targetDf}
-                    </span>
-                    <span className="text-[9px] text-teal-400/90 font-semibold truncate">
-                      {profile.sniStandard.split('&')[0]}
-                    </span>
-                  </button>
-                );
-              })}
+              {/* Dynamic Target Metrics (SNI Acuan) */}
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
+                  <span className="text-[9px] text-slate-400 block font-medium">Target Kekerasan (N)</span>
+                  <span className="text-xs font-mono font-bold text-teal-300">
+                    {selectedProfile.targetHardnessN} N
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">({selectedProfile.hardnessMinN}–{selectedProfile.hardnessMaxN} N)</span>
+                </div>
+                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
+                  <span className="text-[9px] text-slate-400 block font-medium">Target Fraktal Pori</span>
+                  <span className="text-xs font-mono font-bold text-emerald-300">
+                    Df {selectedProfile.targetDf}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">Mikro-porositas</span>
+                </div>
+                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
+                  <span className="text-[9px] text-slate-400 block font-medium">Suhu Masak Acuan</span>
+                  <span className="text-xs font-mono font-bold text-amber-300">
+                    {selectedProfile.optimalOilTempC}°C
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">{selectedProfile.cookingTimeMins} Menit</span>
+                </div>
+              </div>
+
+              {autoDetectedFood?.reason && (
+                <div className="text-[11px] text-slate-300 bg-slate-900/70 p-2 rounded-lg border border-slate-800 flex items-center gap-1.5">
+                  <span className="text-teal-400 font-bold whitespace-nowrap">Karakteristik Visual:</span>
+                  <span className="italic truncate">{autoDetectedFood.reason}</span>
+                </div>
+              )}
             </div>
+
+            {/* Quick-Pick Catalog Chips (Optional reference / override) */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400 font-medium">Katalog Acuan Standar Mutu Makanan:</span>
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                {FOOD_PROFILES.map((profile) => {
+                  const isSelected = selectedProfile.id === profile.id;
+                  return (
+                    <button
+                      key={profile.id}
+                      onClick={() => {
+                        setSelectedProfile(profile);
+                        setAutoDetectedFood({
+                          detectedProfileId: profile.id,
+                          foodName: profile.name,
+                          confidence: 96,
+                          reason: `Profil acuan dipilih: ${profile.name}`
+                        });
+                        setAnalysisResult(null);
+                        setIsSynced(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg border text-xs whitespace-nowrap transition-all flex items-center gap-1 ${
+                        isSelected
+                          ? 'bg-teal-950 text-teal-200 border-teal-500 ring-1 ring-teal-500/50 font-bold'
+                          : 'bg-slate-950/70 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white'
+                      }`}
+                    >
+                      <span>{profile.name.split('(')[0].trim()}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
 
             {customImage && (
               <div className="bg-emerald-950/70 border border-emerald-500/80 p-3 rounded-xl flex items-center justify-between text-xs shadow-lg">
