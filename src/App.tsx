@@ -14,13 +14,76 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'roi'>('dashboard');
-  const [branches, setBranches] = useState<Branch[]>(INITIAL_BRANCHES);
+  const [branches, setBranches] = useState<Branch[]>(() => {
+    try {
+      const saved = localStorage.getItem('rasaai_branches');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to load branches from localStorage', e);
+    }
+    return INITIAL_BRANCHES;
+  });
+
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [batches, setBatches] = useState<BatchRecord[]>(INITIAL_BATCH_RECORDS);
+
+  const [batches, setBatches] = useState<BatchRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('rasaai_batches');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to load batches from localStorage', e);
+    }
+    return INITIAL_BATCH_RECORDS;
+  });
+
   const [isLiveStreaming, setIsLiveStreaming] = useState<boolean>(true);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('rasaai_notifications');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to load notifications from localStorage', e);
+    }
+    return INITIAL_NOTIFICATIONS;
+  });
+
   const [activeToast, setActiveToast] = useState<NotificationItem | null>(null);
+
+  // Sync state to localStorage on changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('rasaai_batches', JSON.stringify(batches));
+    } catch (e) {
+      console.error('Failed to save batches to localStorage', e);
+    }
+  }, [batches]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('rasaai_branches', JSON.stringify(branches));
+    } catch (e) {
+      console.error('Failed to save branches to localStorage', e);
+    }
+  }, [branches]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('rasaai_notifications', JSON.stringify(notifications));
+    } catch (e) {
+      console.error('Failed to save notifications to localStorage', e);
+    }
+  }, [notifications]);
 
   // Check if any branch has active 3-consecutive deviation alert
   const hasDeviationAlert = branches.some(b => b.recentDeviationsCount >= 3) || notifications.some(n => !n.read && n.type === 'DEVIATION');
