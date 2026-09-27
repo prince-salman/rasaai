@@ -48,7 +48,12 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
 
   // Guts AI Model State (Selected from candidate list)
   const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
-    return localStorage.getItem('rasa_preferred_ai_model') || DEFAULT_GUTS_MODEL;
+    const saved = localStorage.getItem('rasa_preferred_ai_model');
+    if (!saved || saved.includes('gemini')) {
+      localStorage.setItem('rasa_preferred_ai_model', DEFAULT_GUTS_MODEL);
+      return DEFAULT_GUTS_MODEL;
+    }
+    return saved;
   });
   const [gutsAiMeta, setGutsAiMeta] = useState<{ model: string; latencyMs: number } | null>(null);
   const [isAiThinking, setIsAiThinking] = useState(false);

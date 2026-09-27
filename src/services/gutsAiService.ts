@@ -10,71 +10,57 @@ export interface GutsAiModelInfo {
 
 export const GUTS_AI_MODELS: GutsAiModelInfo[] = [
   {
-    id: 'gemini-3.7-flash',
-    name: 'Gemini 3.7 Flash Vision',
-    badge: 'Vision Multimodal (Paling Pintar)',
-    speed: '~3.5s',
-    description: 'Model vision multimodal dengan mata optik AI nyata. Mampu melihat dan membedakan detail visual (ekor udang, daging ayam, potongan tempe mendoan, keripik, dsb).'
+    id: 'nemotron-3-nano-omni',
+    name: 'Nemotron 3 Nano Omni',
+    badge: 'Model Utama (Multimodal ~1.1s)',
+    speed: '~1.1s',
+    description: 'Model vision multimodal nano NVIDIA dengan pemrosesan optik instan tercepat untuk analisis visual dan tekstur makanan.'
   },
   {
     id: 'nemotron-3-super',
     name: 'Nemotron 3 Super',
-    badge: 'Tercepat & Sensorik ~1.8s',
+    badge: 'Penalaran Sensori ~1.8s',
     speed: '~1.8s',
     description: 'Model penalaran sensori tercepat untuk korelasi parameter spektrofotometri dan kekerasan.'
   },
   {
     id: 'nemotron-3-ultra',
     name: 'Nemotron 3 Ultra',
-    badge: 'Deep Knowledge',
+    badge: 'Deep Knowledge ~2.2s',
     speed: '~2.2s',
     description: 'Model penalaran mendalam NVIDIA untuk analisis tekstur dan profil mutu pangan.'
   },
   {
     id: 'nemotron-3.5-lightning',
     name: 'Nemotron 3.5 Lightning',
-    badge: 'High Throughput',
+    badge: 'High Throughput ~3.5s',
     speed: '~3.5s',
     description: 'Arsitektur Lightning untuk pemrosesan teks dan data analitik skala tinggi.'
   },
   {
-    id: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash Vision',
-    badge: 'Ultra Vision Multimodal',
-    speed: '~6.5s',
-    description: 'Model vision generasi terbaru dengan kapabilitas deteksi objek visual beresolusi tinggi.'
-  },
-  {
-    id: 'nemotron-3-nano-omni',
-    name: 'Nemotron 3 Nano Omni',
-    badge: 'Ultra-Compact',
-    speed: '~1.1s',
-    description: 'Model nano berkecepatan instan untuk respons cepat.'
-  },
-  {
     id: 'ling-3.0-flash-fin',
     name: 'Ling 3.0 Flash Fin',
-    badge: 'Quantitative Flash',
+    badge: 'Quantitative Flash ~1.4s',
     speed: '~1.4s',
     description: 'Model kuantitatif berpresisi tinggi untuk toleransi metrik numerik.'
   },
   {
     id: 'laguna-xs2.1',
     name: 'Laguna XS 2.1',
-    badge: 'Compact Neural',
+    badge: 'Compact Neural ~3.4s',
     speed: '~3.4s',
     description: 'Model neural efisien untuk identifikasi pola citra.'
   },
   {
     id: 'laguna-s2.1',
     name: 'Laguna S 2.1',
-    badge: 'Balanced Neural',
+    badge: 'Balanced Neural ~2.8s',
     speed: '~2.8s',
     description: 'Model penalaran seimbang untuk verifikasi silang standar SNI pangan.'
   }
 ];
 
-export const DEFAULT_GUTS_MODEL = 'gemini-3.7-flash';
+export const DEFAULT_GUTS_MODEL = 'nemotron-3-nano-omni';
 
 const GUTS_API_KEY = 'sk-guts-83d0dcdcfcf1dc76ae8aaf946815626cbf04ebd3';
 const GUTS_API_ENDPOINT = 'https://api.gutsai.id/v1/chat/completions';
@@ -138,10 +124,11 @@ export async function classifyFoodWithGutsAi(
   // Prioritized fallback queue starting with user's selected model
   const modelQueue = [
     targetModel,
-    'gemini-3.7-flash',
+    'nemotron-3-nano-omni',
     'nemotron-3-super',
     'nemotron-3-ultra',
-    'nemotron-3.5-lightning'
+    'nemotron-3.5-lightning',
+    'ling-3.0-flash-fin'
   ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
   const visualDesc = deriveVisualCues(lab, df);
@@ -180,7 +167,7 @@ PANDUAN KLASIFIKASI KULINER:
 
       let requestBody: any;
 
-      if (model.includes('gemini') && base64Image) {
+      if ((model.includes('omni') || model.includes('nano-omni')) && base64Image) {
         requestBody = {
           model: model,
           messages: [
