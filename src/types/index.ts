@@ -90,3 +90,10 @@ export interface FoodValidationResult {
   suggestion?: string;
 }
 
+export interface FoodClassificationResult {
+  detectedProfileId: string;
+  foodName: string;
+  confidence: number;
+  reason: string;
+}
+

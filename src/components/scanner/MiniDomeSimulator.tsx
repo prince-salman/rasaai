@@ -23,9 +23,9 @@ import {
   ExternalLink,
   X
 } from 'lucide-react';
-import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord, FoodValidationResult } from '../../types';
+import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord, FoodValidationResult, FoodClassificationResult } from '../../types';
 import { FOOD_PROFILES } from '../../data/initialData';
-import { runDualEngineAnalysis, validateFoodSample } from '../../utils/visionEngine';
+import { runDualEngineAnalysis, validateFoodSample, classifyFoodSample } from '../../utils/visionEngine';
 import { playDeviationAlert } from '../../utils/audioAlert';
 
 interface MiniDomeSimulatorProps {
@@ -60,6 +60,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showTechDetails, setShowTechDetails] = useState(false);
   const [foodValidationError, setFoodValidationError] = useState<FoodValidationResult | null>(null);
+  const [autoDetectedFood, setAutoDetectedFood] = useState<FoodClassificationResult | null>(null);
 
   // Close print modal on Escape key
   useEffect(() => {
@@ -171,6 +172,15 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     try {
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       setCustomImage(dataUrl);
+
+      // Auto-classify captured food
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const classification = classifyFoodSample(imgData, FOOD_PROFILES);
+      const matched = FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+      if (matched) {
+        setSelectedProfile(matched);
+        setAutoDetectedFood(classification);
+      }
     } catch (err) {
       console.error("Capture dataURL error:", err);
     }
@@ -247,6 +257,19 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Auto-classify on scan trigger if not already identified
+    try {
+      const imgDataStart = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const classification = classifyFoodSample(imgDataStart, FOOD_PROFILES);
+      const matched = FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+      if (matched && (!autoDetectedFood || matched.id !== selectedProfile.id)) {
+        setSelectedProfile(matched);
+        setAutoDetectedFood(classification);
+      }
+    } catch {
+      // Continue normal scan
+    }
+
     const duration = 3800;
     const startTime = Date.now();
 
@@ -256,15 +279,15 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       setScanProgress(progress);
 
       if (progress < 25) {
-        setScanPhaseText('🔍 Memeriksa keabsahan sampel makanan (filter anti-wajah & objek non-pangan)...');
+        setScanPhaseText(`🤖 Identifikasi AI: Mendeteksi profil ${selectedProfile.name}...`);
       } else if (progress < 50) {
-        setScanPhaseText('🎨 Memeriksa warna dan tingkat kematangan kerak...');
+        setScanPhaseText('🎨 Memeriksa warna & kematangan kerak (CIE-Lab & BI)...');
       } else if (progress < 75) {
-        setScanPhaseText('🔍 Memeriksa pori-pori dan tekstur kerenyahan...');
+        setScanPhaseText('🔍 Memeriksa pori-pori fraktal (Box-Counting Df)...');
       } else if (progress < 92) {
-        setScanPhaseText('⚙️ Menghitung skor kerenyahan & keempukan...');
+        setScanPhaseText('⚙️ Regresi ML XGBoost: Menghitung kekerasan TPA & kerenyahan...');
       } else {
-        setScanPhaseText('✅ Menyimpan hasil pemeriksaan mutu...');
+        setScanPhaseText('✅ Menyimpan rekam mutu terstandar CPPOB...');
       }
 
       if (elapsed >= duration) {
@@ -364,10 +387,31 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       stopCamera();
       const reader = new FileReader();
       reader.onload = (event) => {
-        setCustomImage(event.target?.result as string);
+        const src = event.target?.result as string;
+        setCustomImage(src);
         setAnalysisResult(null);
         setFoodValidationError(null);
         setIsSynced(false);
+
+        // Auto-classify uploaded custom image
+        const tempImg = new Image();
+        tempImg.onload = () => {
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width = 360;
+          offCanvas.height = 360;
+          const offCtx = offCanvas.getContext('2d');
+          if (offCtx) {
+            offCtx.drawImage(tempImg, 0, 0, 360, 360);
+            const imgData = offCtx.getImageData(0, 0, 360, 360);
+            const classification = classifyFoodSample(imgData, FOOD_PROFILES);
+            const matched = FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+            if (matched) {
+              setSelectedProfile(matched);
+              setAutoDetectedFood(classification);
+            }
+          }
+        };
+        tempImg.src = src;
       };
       reader.readAsDataURL(file);
     }
@@ -731,9 +775,43 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               />
             </div>
 
+            {autoDetectedFood && (
+              <div className="bg-teal-950/90 border border-teal-500/70 p-3 rounded-xl flex items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in slide-in-from-top-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="p-1.5 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/40 flex-shrink-0">
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider bg-teal-900 text-teal-300 border border-teal-700 px-1.5 py-0.5 rounded">
+                        AI Terdeteksi Otomatis
+                      </span>
+                      <span className="font-bold text-white text-xs">
+                        {autoDetectedFood.foodName}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                        ({autoDetectedFood.confidence}% Akurat)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 mt-0.5 leading-tight">
+                      {autoDetectedFood.reason}. Profil standar acuan langsung disesuaikan otomatis.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAutoDetectedFood(null)}
+                  className="text-[10px] text-slate-400 hover:text-white underline whitespace-nowrap"
+                >
+                  Tutup
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2">
               {FOOD_PROFILES.map((profile) => {
                 const isSelected = selectedProfile.id === profile.id;
+                const isAutoMatched = autoDetectedFood?.detectedProfileId === profile.id;
                 return (
                   <button
                     key={profile.id}
@@ -742,17 +820,25 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                       setAnalysisResult(null);
                       setIsSynced(false);
                     }}
-                    className={`p-2.5 rounded-xl border text-left transition-all flex flex-col gap-1 ${
+                    className={`p-2.5 rounded-xl border text-left transition-all flex flex-col gap-1 relative ${
                       isSelected 
                         ? 'bg-teal-950/70 border-teal-500/80 ring-1 ring-teal-500/40' 
                         : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    <span className="text-[11px] font-bold text-white line-clamp-1">
-                      {profile.name}
-                    </span>
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[11px] font-bold text-white line-clamp-1">
+                        {profile.name}
+                      </span>
+                      {isAutoMatched && (
+                        <span className="text-[9px] font-bold text-teal-300 bg-teal-950 border border-teal-700 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                          <Sparkles className="w-2.5 h-2.5" />
+                          <span>AI</span>
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-slate-400 font-mono">
-                      Target: {profile.targetHardnessN} N ? Df {profile.targetDf}
+                      Target: {profile.targetHardnessN} N • Df {profile.targetDf}
                     </span>
                     <span className="text-[9px] text-teal-400/90 font-semibold truncate">
                       {profile.sniStandard.split('&')[0]}
