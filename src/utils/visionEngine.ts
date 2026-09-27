@@ -457,10 +457,33 @@ export function generateDynamicFoodProfile(
   };
 }
 
+let cachedMobileNetModel: any = null;
+
+/**
+ * Executes browser-based Deep Learning classification via MobileNet neural network.
+ * Provides supplementary ImageNet semantic labels to combine with culinary spectral metrics.
+ */
+export async function detectWithMobileNet(canvasOrImage: HTMLCanvasElement | HTMLImageElement): Promise<string[]> {
+  try {
+    if (typeof window !== 'undefined' && (window as any).mobilenet) {
+      if (!cachedMobileNetModel) {
+        cachedMobileNetModel = await (window as any).mobilenet.load();
+      }
+      if (cachedMobileNetModel) {
+        const predictions = await cachedMobileNetModel.classify(canvasOrImage);
+        return predictions.map((p: any) => (p.className || '').toLowerCase());
+      }
+    }
+  } catch (err) {
+    console.warn('MobileNet classification fallback to local spectral vision engine:', err);
+  }
+  return [];
+}
+
 /**
  * Automatically classifies the culinary food type based on chromatic signature (CIE-Lab),
  * spatial micro-porosity (Box-Counting Fractal Dimension Df), granular patch variance,
- * and optional filename or metadata hints.
+ * deep learning MobileNet semantic labels, and optional filename or metadata hints.
  * Accurately recognizes: Nasi Goreng (Fried Rice), Ayam Goreng Krispi, Keripik, Tahu/Tempe Crispy,
  * Kentang Goreng (French Fries), Mie Goreng, Pastry, Martabak, Burger, Pizza, Sate, Donat, etc.,
  * or dynamically synthesizes a profile for any photographed food!
@@ -468,7 +491,8 @@ export function generateDynamicFoodProfile(
 export function classifyFoodSample(
   imageData: ImageData,
   profiles: FoodProfile[],
-  fileNameHint?: string
+  fileNameHint?: string,
+  deepLearningLabels?: string[]
 ): FoodClassificationResult {
   const width = imageData.width;
   const height = imageData.height;
@@ -515,38 +539,42 @@ export function classifyFoodSample(
   let varianceLum = blockMeans.reduce((acc, val) => acc + Math.pow(val - meanBlockLum, 2), 0) / blockMeans.length;
   let stdDevLum = Math.sqrt(varianceLum);
 
+  // Check deep learning labels if supplied
+  const dlStr = (deepLearningLabels || []).join(' ').toLowerCase();
+
   // Filename keyword check for instant 100% confidence matching
   const fn = (fileNameHint || '').toLowerCase();
   let forcedProfileId: string | null = null;
-  if (fn.includes('nasi') || fn.includes('rice') || fn.includes('fried_rice')) {
+  if (fn.includes('nasi') || fn.includes('rice') || fn.includes('fried_rice') || dlStr.includes('fried rice') || dlStr.includes('rice')) {
     forcedProfileId = 'nasi-goreng';
-  } else if (fn.includes('ayam') || fn.includes('chicken') || fn.includes('poultry') || fn.includes('kfc')) {
+  } else if (fn.includes('ayam') || fn.includes('chicken') || fn.includes('poultry') || fn.includes('kfc') || dlStr.includes('chicken') || dlStr.includes('rotisserie')) {
     forcedProfileId = 'ayam-krispi';
-  } else if (fn.includes('keripik') || fn.includes('chips') || fn.includes('singkong')) {
+  } else if (fn.includes('keripik') || fn.includes('chips') || fn.includes('singkong') || dlStr.includes('chip') || dlStr.includes('crisp')) {
     forcedProfileId = 'keripik-kentang';
   } else if (fn.includes('tempe') || fn.includes('tahu') || fn.includes('tofu')) {
     forcedProfileId = 'tahu-tempe-crispy';
-  } else if (fn.includes('kentang') || fn.includes('fries') || fn.includes('french') || fn.includes('potato')) {
+  } else if (fn.includes('kentang') || fn.includes('fries') || fn.includes('french') || fn.includes('potato') || dlStr.includes('french fries') || dlStr.includes('potato')) {
     forcedProfileId = 'kentang-goreng';
-  } else if (fn.includes('mie') || fn.includes('noodle') || fn.includes('bakmi') || fn.includes('kwetiau')) {
+  } else if (fn.includes('mie') || fn.includes('noodle') || fn.includes('bakmi') || fn.includes('kwetiau') || dlStr.includes('noodle') || dlStr.includes('carbonara')) {
     forcedProfileId = 'mie-goreng';
-  } else if (fn.includes('pastry') || fn.includes('croissant') || fn.includes('risol') || fn.includes('puff')) {
+  } else if (fn.includes('pastry') || fn.includes('croissant') || fn.includes('risol') || fn.includes('puff') || dlStr.includes('croissant') || dlStr.includes('pastry') || dlStr.includes('bakery')) {
     forcedProfileId = 'pastry-croissant';
-  } else if (fn.includes('martabak') || fn.includes('lumpia')) {
+  } else if (fn.includes('martabak') || fn.includes('lumpia') || dlStr.includes('burrito') || dlStr.includes('taco')) {
     forcedProfileId = 'martabak-telur';
-  } else if (fn.includes('burger') || fn.includes('sandwich')) {
+  } else if (fn.includes('burger') || fn.includes('sandwich') || dlStr.includes('burger') || dlStr.includes('cheeseburger')) {
     forcedProfileId = 'burger-sandwich';
-  } else if (fn.includes('pizza')) {
+  } else if (fn.includes('pizza') || dlStr.includes('pizza')) {
     forcedProfileId = 'pizza-crust';
   } else if (fn.includes('sate') || fn.includes('satay') || fn.includes('panggang') || fn.includes('bakar')) {
     forcedProfileId = 'sate-panggang';
-  } else if (fn.includes('donat') || fn.includes('donut')) {
+  } else if (fn.includes('donat') || fn.includes('donut') || dlStr.includes('doughnut') || dlStr.includes('bagel')) {
     forcedProfileId = 'donat-roti';
   } else if (fn.includes('ikan') || fn.includes('fish') || fn.includes('seafood') || fn.includes('udang')) {
     forcedProfileId = 'ikan-crispy';
   } else if (fn.includes('pisang') || fn.includes('banana')) {
     forcedProfileId = 'pisang-goreng';
   }
+
 
   // Score candidate profiles
   let bestProfile = profiles[0];

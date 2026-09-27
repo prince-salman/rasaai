@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord, FoodValidationResult, FoodClassificationResult } from '../../types';
 import { FOOD_PROFILES } from '../../data/initialData';
-import { runDualEngineAnalysis, validateFoodSample, classifyFoodSample } from '../../utils/visionEngine';
+import { runDualEngineAnalysis, validateFoodSample, classifyFoodSample, detectWithMobileNet } from '../../utils/visionEngine';
 import { playDeviationAlert } from '../../utils/audioAlert';
 
 interface MiniDomeSimulatorProps {
@@ -181,6 +181,18 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
         setSelectedProfile(matched);
         setAutoDetectedFood(classification);
       }
+
+      // Deep Learning MobileNet verification in background
+      detectWithMobileNet(canvas).then((dlLabels) => {
+        if (dlLabels && dlLabels.length > 0) {
+          const refined = classifyFoodSample(imgData, FOOD_PROFILES, undefined, dlLabels);
+          const refinedMatched = refined.dynamicProfile || FOOD_PROFILES.find(p => p.id === refined.detectedProfileId);
+          if (refinedMatched) {
+            setSelectedProfile(refinedMatched);
+            setAutoDetectedFood(refined);
+          }
+        }
+      });
     } catch (err) {
       console.error("Capture dataURL error:", err);
     }
@@ -205,6 +217,31 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       canvas.width = 360;
       canvas.height = 360;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // Auto-classify the loaded image directly from canvas pixels
+      try {
+        const rawImgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const classification = classifyFoodSample(rawImgData, FOOD_PROFILES);
+        const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
+        if (matched && (!autoDetectedFood || autoDetectedFood.detectedProfileId !== matched.id)) {
+          setSelectedProfile(matched);
+          setAutoDetectedFood(classification);
+        }
+
+        // Deep Learning MobileNet verification in background
+        detectWithMobileNet(canvas).then((dlLabels) => {
+          if (dlLabels && dlLabels.length > 0) {
+            const refined = classifyFoodSample(rawImgData, FOOD_PROFILES, undefined, dlLabels);
+            const refinedMatched = refined.dynamicProfile || FOOD_PROFILES.find(p => p.id === refined.detectedProfileId);
+            if (refinedMatched) {
+              setSelectedProfile(refinedMatched);
+              setAutoDetectedFood(refined);
+            }
+          }
+        });
+      } catch {
+        // Continue
+      }
 
       if (viewMode === 'pore-fractal') {
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -421,6 +458,18 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               setSelectedProfile(matched);
               setAutoDetectedFood(classification);
             }
+
+            // Deep Learning MobileNet verification
+            detectWithMobileNet(offCanvas).then((dlLabels) => {
+              if (dlLabels && dlLabels.length > 0) {
+                const refined = classifyFoodSample(imgData, FOOD_PROFILES, fileName, dlLabels);
+                const refinedMatched = refined.dynamicProfile || FOOD_PROFILES.find(p => p.id === refined.detectedProfileId);
+                if (refinedMatched) {
+                  setSelectedProfile(refinedMatched);
+                  setAutoDetectedFood(refined);
+                }
+              }
+            });
           }
         };
         tempImg.src = src;
@@ -852,40 +901,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               )}
             </div>
 
-            {/* Quick-Pick Catalog Chips (Optional reference / override) */}
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-400 font-medium">Katalog Acuan Standar Mutu Makanan:</span>
-              </div>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-                {FOOD_PROFILES.map((profile) => {
-                  const isSelected = selectedProfile.id === profile.id;
-                  return (
-                    <button
-                      key={profile.id}
-                      onClick={() => {
-                        setSelectedProfile(profile);
-                        setAutoDetectedFood({
-                          detectedProfileId: profile.id,
-                          foodName: profile.name,
-                          confidence: 96,
-                          reason: `Profil acuan dipilih: ${profile.name}`
-                        });
-                        setAnalysisResult(null);
-                        setIsSynced(false);
-                      }}
-                      className={`px-2.5 py-1 rounded-lg border text-xs whitespace-nowrap transition-all flex items-center gap-1 ${
-                        isSelected
-                          ? 'bg-teal-950 text-teal-200 border-teal-500 ring-1 ring-teal-500/50 font-bold'
-                          : 'bg-slate-950/70 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white'
-                      }`}
-                    >
-                      <span>{profile.name.split('(')[0].trim()}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+
 
 
             {customImage && (
