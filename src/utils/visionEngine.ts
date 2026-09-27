@@ -254,7 +254,8 @@ export function runDualEngineAnalysis(
 
 /**
  * Validates whether the image on the canvas is a valid food/culinary sample
- * Rejects: human faces, selfies, skin, non-food cold colors (blue/cyan screens), blank walls, and extreme lighting
+ * Rejects: human faces, selfies, skin, non-food cold screens, blank walls, and extreme lighting
+ * Accurately accepts: fried chicken, pastry, keripik, cookies, tempeh, foods on colored plates
  */
 export async function validateFoodSample(
   canvas: HTMLCanvasElement | null,
@@ -266,6 +267,7 @@ export async function validateFoodSample(
   const totalPixels = width * height;
 
   // 1. Hardware / Browser Native Face Detector API (Chromium / Chrome / Android)
+  // When available, this uses trained neural network to detect actual eyes, nose, mouth
   if (canvas && typeof (window as any).FaceDetector === 'function') {
     try {
       const faceDetector = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 3 });
@@ -280,14 +282,19 @@ export async function validateFoodSample(
         };
       }
     } catch {
-      // Fallback to chromatic & biometric rules below
+      // Fallback to chromatic & texture-aware rules below
     }
   }
 
-  // 2. Pixel Statistics: Luminance, Variance, Skin-tones, Color distribution
+  // 2. Texture & Porosity analysis (Crucial discriminator: Food has crumb/batter pores, human skin is smooth)
+  const { df, porosity } = computeFractalDimension(imageData);
+  const isPorousFoodTexture = porosity >= 5.5 || df >= 1.62;
+
+  // 3. Pixel Statistics: Luminance, Variance, Skin-tones, Color distribution
   let sumL = 0;
   let sumR = 0, sumG = 0, sumB = 0;
-  let skinPixels = 0;
+  let smoothSkinPixels = 0;
+  let warmFoodPixels = 0;
   let coldPixels = 0;
   let pureWhitePixels = 0;
   let pureBlackPixels = 0;
@@ -302,31 +309,37 @@ export async function validateFoodSample(
     sumG += g;
     sumB += b;
 
-    if (lum < 16) pureBlackPixels++;
-    if (lum > 242) pureWhitePixels++;
+    if (lum < 12) pureBlackPixels++;
+    if (lum > 246) pureWhitePixels++;
 
-    // Human Skin Chromatic Rule (Peer et al. & Kovac et al.)
-    // R > 95, G > 40, B > 20, max - min > 15, |R - G| > 15, R > G, R > B
-    const maxVal = Math.max(r, g, b);
-    const minVal = Math.min(r, g, b);
-    const isSkinRgb = (r > 95 && g > 40 && b > 20 && (maxVal - minVal) > 15 && Math.abs(r - g) > 15 && r > g && r > b);
-
-    // YCbCr skin model (Chai & Ngan)
-    const cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
-    const cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
-    const isSkinYCbCr = cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173;
-
-    // Distinguish human skin from deep-golden fried batter:
-    // Fried crust has intense golden/yellow (b* > 28, or (r+g)/2 - b > 55 with high contrast),
-    // whereas human skin is soft beige/pink with (r - b) < 50
-    const isIntenseGoldenBatter = (r > 130 && g > 90 && b < 70 && (r - b) > 55);
-
-    if (isSkinRgb && isSkinYCbCr && !isIntenseGoldenBatter) {
-      skinPixels++;
+    // Warm Food Chromatic Profile (fried batter, bread crust, pastry, caramel, golden-yellow)
+    const isWarmFood = (r > b + 15 && g >= b - 12 && (r + g) > 110);
+    if (isWarmFood) {
+      warmFoodPixels++;
     }
 
-    // Cold / Non-food spectrum: strong blue dominance or cold gray screen
-    if ((b > r + 15 && b > g + 10) || (b > 130 && r < 90 && g < 110)) {
+    // Human Skin Chromatic Rule (Strict: soft pinkish/beige without intense food yellowing)
+    // Human skin has: (R > G > B), (R - G) between 12 and 45, and yellow saturation ((R+G)/2 - B) < 40
+    // Food crust has much higher yellow carotenoid/Maillard saturation ((R+G)/2 - B >= 40 or b > 25 in Lab)
+    const maxVal = Math.max(r, g, b);
+    const minVal = Math.min(r, g, b);
+    const yellowSaturation = ((r + g) / 2) - b;
+
+    const cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
+    const cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
+    const isSkinYCbCr = cb >= 80 && cb <= 125 && cr >= 135 && cr <= 170;
+
+    const isSkinRgb = (r > 105 && g > 55 && b > 35 && (maxVal - minVal) > 15 && (r - g) >= 12 && (r - g) <= 50 && r > g && r > b);
+
+    // Food batter has strong golden-yellow saturation or deep caramel browning
+    const isFoodColor = yellowSaturation >= 38 || (r > 160 && g > 110 && b < 100);
+
+    if (isSkinRgb && isSkinYCbCr && !isFoodColor) {
+      smoothSkinPixels++;
+    }
+
+    // Cold Non-food: Strong blue/cyan dominance (screens, blue walls)
+    if (b > r + 25 && b > g + 15 && b > 90) {
       coldPixels++;
     }
   }
@@ -336,7 +349,8 @@ export async function validateFoodSample(
   const avgG = sumG / totalPixels;
   const avgB = sumB / totalPixels;
 
-  const skinRatio = skinPixels / totalPixels;
+  const skinRatio = smoothSkinPixels / totalPixels;
+  const warmFoodRatio = warmFoodPixels / totalPixels;
   const coldRatio = coldPixels / totalPixels;
   const blackRatio = pureBlackPixels / totalPixels;
   const whiteRatio = pureWhitePixels / totalPixels;
@@ -349,22 +363,19 @@ export async function validateFoodSample(
   }
   const variance = varianceSum / totalPixels;
 
-  // Convert average to CIE-Lab
-  const avgLab = rgbToCieLab(Math.round(avgR), Math.round(avgG), Math.round(avgB));
-
-  // CHECK 1: Extreme Lightness (Too Dark / Camera Blocked)
-  if (avgLum < 18 || blackRatio > 0.85) {
+  // CHECK 1: Extreme Darkness (Camera Lens Covered / Pitch Black)
+  if (avgLum < 12 || blackRatio > 0.90) {
     return {
       isValid: false,
       errorType: 'TOO_DARK',
       title: 'Pencahayaan Terlalu Gelap',
-      reason: 'Lensa kamera tertutup atau pencahayaan sangat minim (L* < 18).',
-      suggestion: 'Pastikan pencahayaan cukup atau nyalakan lampu chamber/flash.'
+      reason: 'Lensa kamera tertutup atau pencahayaan sangat minim (Luminansi < 12).',
+      suggestion: 'Pastikan pencahayaan cukup atau nyalakan lampu chamber/flash kamera.'
     };
   }
 
-  // CHECK 2: Extreme Lightness (Too Bright / White Wall / Blank Paper)
-  if (avgLum > 238 || whiteRatio > 0.85) {
+  // CHECK 2: Extreme Lightness (Silau Ekstrem / Kertas Putih Kosong)
+  if (avgLum > 248 || whiteRatio > 0.92) {
     return {
       isValid: false,
       errorType: 'TOO_BRIGHT',
@@ -374,20 +385,20 @@ export async function validateFoodSample(
     };
   }
 
-  // CHECK 3: Blank Texture / No Contours
-  if (variance < 60) {
+  // CHECK 3: Blank Flat Texture (Tembok polos / Kertas kosong tanpa kontur)
+  if (variance < 20) {
     return {
       isValid: false,
       errorType: 'BLANK_TEXTURE',
-      title: 'Tidak Ada Makanan Terdeteksi',
+      title: 'Tidak Ada Kontur Makanan Terdeteksi',
       reason: 'Gambar terlalu polos atau tidak memiliki tekstur/pori-pori makanan (dinding/kain polos).',
       suggestion: 'Arahkan fokus kamera ke permukaan gorengan atau makanan olahan.'
     };
   }
 
-  // CHECK 4: Human Face / Skin Tone Detection
-  // If skin pixel ratio is high (> 24%)
-  if (skinRatio > 0.24) {
+  // CHECK 4: Human Face / Skin Tone Detection (Fallback if FaceDetector unavailable)
+  // Only trigger if: NO food porous texture AND smooth skin occupies majority of the frame (> 65%)
+  if (!isPorousFoodTexture && skinRatio > 0.65 && warmFoodRatio < 0.20) {
     return {
       isValid: false,
       errorType: 'FACE_DETECTED',
@@ -397,13 +408,14 @@ export async function validateFoodSample(
     };
   }
 
-  // CHECK 5: Non-Food Colors (Dominant Blue, Cyan, Cold Screen)
-  if (coldRatio > 0.25 || (avgLab.b < 4 && avgB > avgR)) {
+  // CHECK 5: Non-Food Cold Colors (Only reject if dominant blue screen AND no warm food present)
+  // If warm food is on a blue plate, warmFoodRatio > 0.08 will protect it from false rejection!
+  if (coldRatio > 0.70 && warmFoodRatio < 0.08) {
     return {
       isValid: false,
       errorType: 'NOT_FOOD_COLOR',
       title: 'Bukan Objek Makanan Kuliner',
-      reason: 'Terdeteksi warna dingin non-pangan (kebiruan/cyan/layar monitor). Makanan gorengan memiliki pigmen hangat (kuning keemasan / cokelat).',
+      reason: 'Terdeteksi warna dingin non-pangan (kebiruan/cyan/layar monitor) tanpa objek makanan.',
       suggestion: 'Pastikan objek yang difoto adalah produk pangan/kuliner asli.'
     };
   }

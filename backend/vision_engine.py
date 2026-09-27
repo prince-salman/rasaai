@@ -31,8 +31,8 @@ except ImportError:
 
 def assess_image_quality(
     image_bgr: np.ndarray,
-    blur_threshold: float = 80.0,
-    steam_haze_threshold: float = 0.25
+    blur_threshold: float = 20.0,
+    steam_haze_threshold: float = 0.40
 ) -> Dict[str, Any]:
     """
     Evaluates image quality under extreme kitchen conditions.
@@ -80,12 +80,12 @@ def assess_image_quality(
     avg_b = float(np.mean(lab[:, :, 2])) # In OpenCV Lab: 128 is neutral, >128 is yellow
     avg_b_centered = avg_b - 128.0
 
-    is_too_dark = avg_l < 25.0
-    is_too_bright = avg_l > 240.0
-    is_cold_non_food = avg_b_centered < -5.0 # Strongly blue
+    is_too_dark = avg_l < 15.0
+    is_too_bright = avg_l > 248.0
+    is_cold_non_food = avg_b_centered < -15.0 # Strongly blue
 
     is_blurry = blur_score < blur_threshold
-    is_steamy = (steam_haze_ratio > steam_haze_threshold) or (is_blurry and low_grad_ratio > 0.85)
+    is_steamy = (steam_haze_ratio > steam_haze_threshold) or (is_blurry and low_grad_ratio > 0.90)
 
     is_valid = not (is_blurry or is_steamy or is_face or is_too_dark or is_too_bright or is_cold_non_food)
     rejection_reason = None

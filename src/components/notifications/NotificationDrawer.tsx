@@ -230,7 +230,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                   {isDev && (
                     <div className="mt-2 pt-2 border-t border-rose-900/40 flex items-center justify-between">
                       <span className="text-[10px] text-rose-300 font-semibold">
-                        SOP Tindakan Cepat (Lampiran L.1):
+                        SOP Tindakan Cepat Dapur:
                       </span>
                       <button
                         onClick={() => handleCopyWhatsApp(item)}

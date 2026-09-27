@@ -54,7 +54,7 @@ export const RoiCalculator: React.FC = () => {
             </h2>
           </div>
           <p className="text-sm text-slate-400 mt-0.5">
-            Simulasi bisnis dan pembuktian periode pengembalian modal ~15 hari (BAB 3.2 Dampak dan Keberlanjutan Gagasan)
+            Simulasi bisnis dan pembuktian periode pengembalian modal ~15 hari untuk efisiensi dapur
           </p>
         </div>
 
@@ -63,7 +63,7 @@ export const RoiCalculator: React.FC = () => {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 transition-all self-start"
         >
           <RotateCcw className="w-3.5 h-3.5 text-teal-400" />
-          <span>Reset ke Parameter Naskah (3 Cabang)</span>
+          <span>Reset ke Parameter Rekomendasi (3 Cabang)</span>
         </button>
       </div>
 
@@ -158,7 +158,7 @@ export const RoiCalculator: React.FC = () => {
               onChange={(e) => setWasteReductionPct(Number(e.target.value))}
               className="w-full accent-teal-500 cursor-pointer"
             />
-            <span className="text-[10px] text-slate-500">Estimasi naskah essay: 35% penekanan angka produk cacat</span>
+            <span className="text-[10px] text-slate-500">Target terukur: 35% penekanan angka produk cacat & food waste</span>
           </div>
 
           {/* Biaya per Unit */}
@@ -174,10 +174,10 @@ export const RoiCalculator: React.FC = () => {
           </div>
         </div>
 
-        {/* Formula Explanation & Paper Citation */}
+        {/* Formula Explanation */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 text-xs">
           <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
-            Formula Perhitungan (BAB 3.2 Naskah)
+            Formula Perhitungan Kelayakan Finansial
           </h3>
 
           <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono space-y-2 text-slate-300">

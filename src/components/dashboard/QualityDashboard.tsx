@@ -871,7 +871,7 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
                 <button
                   onClick={onResetDemoBatches}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition-all"
-                  title="Kembalikan data baseline 12 cabang dari naskah essay"
+                  title="Kembalikan data baseline 12 cabang default"
                 >
                   <RotateCcw className="w-3.5 h-3.5 text-teal-400" />
                   <span>Reset Demo 12 Cabang</span>
@@ -994,7 +994,7 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
             </div>
 
             <div className="text-xs text-slate-400 space-y-1">
-              <p>?? <em>Fitur ini adalah implementasi BAB 2.3.1 essay untuk mitigasi deviasi mutu sebelum produk sampai ke tangan konsumen.</em></p>
+              <p>💡 <em>Fitur mitigasi otomatis untuk mencegah deviasi mutu sebelum produk sampai ke tangan konsumen.</em></p>
             </div>
 
             <button

@@ -318,6 +318,46 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     }, 75);
   };
 
+  // User override if they confirm the image is genuinely a food sample
+  const handleForceAnalyze = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    setFoodValidationError(null);
+    const simTemp = Math.round((78.2 + (Math.random() * 2 - 1)) * 10) / 10;
+    const result = runDualEngineAnalysis(
+      imgData,
+      selectedProfile,
+      simTemp
+    );
+    setAnalysisResult(result);
+
+    const currentBranch = branches.find(b => b.id === activeBranchId) || branches[0];
+    const newRecord: BatchRecord = {
+      id: `BATCH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
+      branchId: currentBranch.id,
+      branchName: currentBranch.name,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' WIB',
+      sampleName: selectedProfile.name,
+      category: selectedProfile.category,
+      crispnessScore: result.crispnessIndex,
+      hardnessN: result.hardnessNewtons,
+      deltaE: result.deltaE,
+      df: result.fractalDimension,
+      tempC: result.infraredTempC,
+      browningIndex: result.browningIndex,
+      status: result.qualityStatus,
+      operator: 'Operator AIoT Cabang',
+      feedback: result.feedback
+    };
+
+    onAddBatchRecord(newRecord);
+    setIsSynced(true);
+  };
+
   const handleCustomUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -428,7 +468,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
             </h2>
           </div>
           <p className="text-sm text-slate-400 mt-0.5">
-            Purwarupa fisik inspeksi mutu non-destruktif berbiaya &lt; Rp1,5 Juta untuk dapur cabang (BAB 2.3 & Gambar L.2)
+            Purwarupa fisik inspeksi mutu non-destruktif berbiaya ekonomis untuk standardisasi dapur cabang
           </p>
         </div>
 
@@ -749,7 +789,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
             <div className="flex items-center justify-between font-bold text-slate-200 text-xs">
               <span className="flex items-center gap-1.5">
                 <Cpu className="w-4 h-4 text-teal-400" />
-                <span>BOM Hardware Resmi (BAB 2.3.1)</span>
+                <span>BOM Rincian Komponen Hardware</span>
               </span>
               <span className="text-emerald-400 font-mono">Rp 1.385.000 / unit</span>
             </div>
@@ -1060,14 +1100,23 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
                   type="button"
+                  onClick={handleForceAnalyze}
+                  className="px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-lg transition-all cursor-pointer"
+                  title="Klik jika foto ini adalah sampel makanan olahan asli Anda"
+                >
+                  <CheckCircle className="w-4 h-4 text-slate-950" />
+                  <span>Ini Makanan Asli, Tetap Analisis</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     setFoodValidationError(null);
                     setCustomImage(null);
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg transition-all cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg transition-all cursor-pointer"
                 >
                   <RefreshCw className="w-4 h-4" />
-                  <span>Foto Ulang Sampel Makanan</span>
+                  <span>Foto Ulang Sampel</span>
                 </button>
                 <button
                   type="button"
@@ -1075,9 +1124,9 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                     setFoodValidationError(null);
                     setCustomImage(selectedProfile.sampleImage);
                   }}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
                 >
-                  <span>Gunakan Sampel Acuan ({selectedProfile.name})</span>
+                  <span>Gunakan Acuan ({selectedProfile.name})</span>
                 </button>
               </div>
             </div>
