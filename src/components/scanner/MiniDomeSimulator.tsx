@@ -173,13 +173,21 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     const { df, porosity } = computeFractalDimension(imgData, roi.foodMask);
 
     setIsAiThinking(true);
+    let base64Canvas: string | undefined;
+    if (canvasRef.current) {
+      try {
+        base64Canvas = canvasRef.current.toDataURL('image/jpeg', 0.82);
+      } catch {}
+    }
+
     classifyFoodWithGutsAi(
       roi.lab,
       df,
       porosity,
       FOOD_PROFILES,
       fileNameHint,
-      selectedAiModel
+      selectedAiModel,
+      base64Canvas
     ).then((gutsRes) => {
       setIsAiThinking(false);
       if (gutsRes) {

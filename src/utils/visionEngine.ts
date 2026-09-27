@@ -664,8 +664,12 @@ export function classifyFoodSample(
     forcedProfileId = 'sate-panggang';
   } else if (fn.includes('donat') || fn.includes('donut')) {
     forcedProfileId = 'donat-roti';
-  } else if (fn.includes('ikan') || fn.includes('fish') || fn.includes('seafood') || fn.includes('udang')) {
-    forcedProfileId = 'ikan-crispy';
+  } else if (
+    fn.includes('udang') || fn.includes('shrimp') || fn.includes('prawn') || 
+    fn.includes('ebi') || fn.includes('tempura') || fn.includes('seafood') || 
+    fn.includes('ikan') || fn.includes('fish') || fn.includes('cumi')
+  ) {
+    forcedProfileId = 'udang-crispy';
   } else if (fn.includes('pisang') || fn.includes('banana')) {
     forcedProfileId = 'pisang-goreng';
   }
@@ -718,18 +722,36 @@ export function classifyFoodSample(
         score += 30;
       }
     } else if (p.id === 'ayam-krispi') {
-      // Ayam Goreng: deep browning with higher redness a* >= 12.8, rich crumbly batter
-      if (lab.a >= 12.8 && lab.l <= 66 && lab.b >= 30) {
+      // Ayam Goreng: deep browning with moderate redness a* between 12.8 and 18.0
+      // If a* is extremely high (>= 19.0), it is seafood / udang (astaxanthin in tails) rather than chicken!
+      if (lab.a >= 12.8 && lab.a <= 18.5 && lab.l <= 66 && lab.b >= 30) {
         score += 35;
       }
       if (df >= 1.80) {
         score += 12;
       }
-      if (lab.a >= 14.5) {
-        score += 20;
+      if (lab.a >= 14.0 && lab.a <= 18.0) {
+        score += 15;
+      }
+      if (lab.a >= 19.0) {
+        score -= 45; // Penalize chicken if redness is too high (shrimp tail territory!)
       }
       if (dlStr.includes('chicken') || dlStr.includes('rotisserie') || dlStr.includes('drumstick')) {
         score += 25;
+      }
+    } else if (p.id === 'udang-crispy') {
+      // Udang Goreng Tepung / Ebi Furai / Seafood: high chromatic redness a* >= 17.0 (orange-red shrimp tails)
+      if (lab.a >= 17.0 && lab.b >= 26) {
+        score += 55; // MASSIVE BOOSTER FOR UDANG CRISPY!
+      }
+      if (lab.a >= 20.0) {
+        score += 35; // Extra booster for intense shrimp-tail redness!
+      }
+      if (df >= 1.78 && df <= 1.88) {
+        score += 15;
+      }
+      if (dlStr.includes('shrimp') || dlStr.includes('prawn') || dlStr.includes('seafood') || dlStr.includes('fish')) {
+        score += 35;
       }
     } else if (p.id === 'keripik-kentang') {
       // Keripik: thin crisp, light color (L* >= 65), low redness (a* <= 10.5).
@@ -803,6 +825,8 @@ export function classifyFoodSample(
     detectedReason = `Tekstur butiran nasi terkaramelisasi (L*=${lab.l}, Df=${df}) & aroma wajan (Wok Hei)`;
   } else if (bestProfile.id === 'tahu-tempe-crispy') {
     detectedReason = `Spektrum warna kuning kedelai bumbu ketumbar (b*=${lab.b}) & pori renyah tempe/tahu (Df=${df})`;
+  } else if (bestProfile.id === 'udang-crispy') {
+    detectedReason = `Spektrum merah-keemasan ekor udang (a*=${lab.a}) & pori renyah tepung ebi (Df=${df})`;
   } else if (bestProfile.id === 'ayam-krispi') {
     detectedReason = `Kerak browning Maillard (a*=${lab.a}) & kontur fraktal ayam (Df=${df})`;
   } else if (bestProfile.id === 'keripik-kentang') {

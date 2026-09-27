@@ -10,18 +10,25 @@ export interface GutsAiModelInfo {
 
 export const GUTS_AI_MODELS: GutsAiModelInfo[] = [
   {
+    id: 'gemini-3.7-flash',
+    name: 'Gemini 3.7 Flash Vision',
+    badge: 'Vision Multimodal (Paling Pintar)',
+    speed: '~3.5s',
+    description: 'Model vision multimodal dengan mata optik AI nyata. Mampu melihat dan membedakan detail visual (ekor udang, daging ayam, potongan tempe mendoan, keripik, dsb).'
+  },
+  {
     id: 'nemotron-3-super',
     name: 'Nemotron 3 Super',
-    badge: 'Terbaik & Tercepat (Rekomendasi)',
+    badge: 'Tercepat & Sensorik ~1.8s',
     speed: '~1.8s',
-    description: 'Model paling seimbang, presisi klasifikasi kuliner Indonesia tertinggi, dan latensi ultra-cepat.'
+    description: 'Model penalaran sensori tercepat untuk korelasi parameter spektrofotometri dan kekerasan.'
   },
   {
     id: 'nemotron-3-ultra',
     name: 'Nemotron 3 Ultra',
     badge: 'Deep Knowledge',
     speed: '~2.2s',
-    description: 'Model penalaran mendalam NVIDIA untuk analisis tekstur dan profil mutu kompleks.'
+    description: 'Model penalaran mendalam NVIDIA untuk analisis tekstur dan profil mutu pangan.'
   },
   {
     id: 'nemotron-3.5-lightning',
@@ -31,11 +38,18 @@ export const GUTS_AI_MODELS: GutsAiModelInfo[] = [
     description: 'Arsitektur Lightning untuk pemrosesan teks dan data analitik skala tinggi.'
   },
   {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash Vision',
+    badge: 'Ultra Vision Multimodal',
+    speed: '~6.5s',
+    description: 'Model vision generasi terbaru dengan kapabilitas deteksi objek visual beresolusi tinggi.'
+  },
+  {
     id: 'nemotron-3-nano-omni',
     name: 'Nemotron 3 Nano Omni',
     badge: 'Ultra-Compact',
     speed: '~1.1s',
-    description: 'Model nano multimodal berkecepatan instan untuk respons cepat.'
+    description: 'Model nano berkecepatan instan untuk respons cepat.'
   },
   {
     id: 'ling-3.0-flash-fin',
@@ -49,7 +63,7 @@ export const GUTS_AI_MODELS: GutsAiModelInfo[] = [
     name: 'Laguna XS 2.1',
     badge: 'Compact Neural',
     speed: '~3.4s',
-    description: 'Model neural efisien untuk identifikasi pola citra dan karakteristik visual.'
+    description: 'Model neural efisien untuk identifikasi pola citra.'
   },
   {
     id: 'laguna-s2.1',
@@ -60,7 +74,7 @@ export const GUTS_AI_MODELS: GutsAiModelInfo[] = [
   }
 ];
 
-export const DEFAULT_GUTS_MODEL = 'nemotron-3-super';
+export const DEFAULT_GUTS_MODEL = 'gemini-3.7-flash';
 
 const GUTS_API_KEY = 'sk-guts-83d0dcdcfcf1dc76ae8aaf946815626cbf04ebd3';
 const GUTS_API_ENDPOINT = 'https://api.gutsai.id/v1/chat/completions';
@@ -80,9 +94,11 @@ export interface GutsClassificationResult {
 function deriveVisualCues(lab: LabValues, df: number): string {
   const cues: string[] = [];
   
-  if (lab.l >= 64 && lab.b >= 34 && lab.a <= 13.5) {
-    cues.push('warna kuning keemasan kunyit bertepung bumbu gurih');
-  } else if (lab.a >= 13.0 && lab.l <= 65) {
+  if (lab.a >= 17.0) {
+    cues.push('rona kemerahan-oranye pekat khas ekor udang krispi atau olahan seafood');
+  } else if (lab.l >= 64 && lab.b >= 34 && lab.a <= 13.5) {
+    cues.push('warna kuning keemasan bumbu kunyit kedelai khas tempe/tahu goreng');
+  } else if (lab.a >= 12.8 && lab.a <= 17.5 && lab.l <= 65) {
     cues.push('warna cokelat keemasan Maillard browning khas kerak ayam goreng');
   } else if (lab.l >= 66 && lab.a <= 10.0) {
     cues.push('warna cerah kuning getas khas keripik atau kentang');
@@ -111,23 +127,24 @@ export async function classifyFoodWithGutsAi(
   porosity: number,
   profiles: FoodProfile[],
   fileNameHint?: string,
-  preferredModelId?: string
+  preferredModelId?: string,
+  base64Image?: string
 ): Promise<GutsClassificationResult | null> {
   const targetModel = preferredModelId || DEFAULT_GUTS_MODEL;
   
   // Prioritized fallback queue starting with user's selected model
   const modelQueue = [
     targetModel,
+    'gemini-3.7-flash',
     'nemotron-3-super',
     'nemotron-3-ultra',
-    'nemotron-3.5-lightning',
-    'ling-3.0-flash-fin'
+    'nemotron-3.5-lightning'
   ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
   const visualDesc = deriveVisualCues(lab, df);
   const profilesListText = profiles.map((p, i) => `${i + 1}. ${p.name} [id: ${p.id}]`).join('\n');
 
-  const systemPrompt = `Anda adalah sistem pakar computer vision & food quality assurance RASA AI (CPPOB BPOM & SNI Indonesia).
+  const textSystemPrompt = `Anda adalah sistem pakar computer vision & food quality assurance RASA AI (CPPOB BPOM & SNI Indonesia).
 Tugas: Klasifikasikan identitas hidangan makanan dari data spektral kamera dan tekstur berikut.
 
 Data Sampel:
@@ -140,8 +157,9 @@ Daftar Acuan Profil Standar Mutu SNI:
 ${profilesListText}
 
 PANDUAN KLASIFIKASI:
+- Bila rona merah kemerahan sangat tinggi (a* >= 17) atau ada tampak ekor oranye, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
 - Bila warna kuning keemasan (b* tinggi) dan ada aroma kedelai/kunyit/daun bawang, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
-- Bila warna cokelat browning Maillard (a* >= 13) dan kerak krispi renyah, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
+- Bila warna cokelat browning Maillard (a* 13-17) dan kerak ayam krispi, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
 - Jangan samakan Tempe Goreng dengan Kentang Goreng (French Fries).
 - Berikan output HANYA satu objek JSON valid tanpa pembungkus markdown apapun:
 {"detectedProfileId": "id-pilihan", "foodName": "Nama Makanan", "confidence": 98, "reason": "Alasan singkat deteksi"}`;
@@ -150,7 +168,53 @@ PANDUAN KLASIFIKASI:
     const t0 = performance.now();
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 8500); // 8.5s timeout
+
+      let requestBody: any;
+
+      if (model.includes('gemini') && base64Image) {
+        requestBody = {
+          model: model,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Anda adalah sistem pakar Computer Vision RASA AI (CPPOB BPOM & SNI Indonesia).
+Lihat foto makanan ini dengan seksama. Kenali objeknya secara presisi (apakah udang goreng dengan ekor kemerahan, ayam goreng berpori, tempe mendoan berdaun bawang, keripik, kentang, dsb).
+
+Pilihan Profil SNI:
+${profilesListText}
+
+PANDUAN:
+- Perhatikan detail visual: jika tampak ekor udang berwarna oranye/kemerahan, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
+- Jika tampak irisan daun bawang dan butiran kedelai tempe, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
+- Jika berupa potongan ayam bertulang/berkerak browning, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
+
+Jawab HANYA satu objek JSON valid:
+{"detectedProfileId": "id-pilihan", "foodName": "Nama Makanan", "confidence": 98, "reason": "Alasan visual detail (sebutkan bentuk, ekor udang/tulang ayam/tekstur)"}`
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: base64Image }
+                }
+              ]
+            }
+          ],
+          max_tokens: 200,
+          temperature: 0.1
+        };
+      } else {
+        requestBody = {
+          model: model,
+          messages: [
+            { role: 'user', content: textSystemPrompt }
+          ],
+          max_tokens: 250,
+          temperature: 0.1
+        };
+      }
 
       const res = await fetch(GUTS_API_ENDPOINT, {
         method: 'POST',
@@ -158,14 +222,7 @@ PANDUAN KLASIFIKASI:
           'Authorization': `Bearer ${GUTS_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'user', content: systemPrompt }
-          ],
-          max_tokens: 300,
-          temperature: 0.1
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
 
