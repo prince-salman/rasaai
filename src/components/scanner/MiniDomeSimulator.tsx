@@ -25,7 +25,8 @@ import {
 } from 'lucide-react';
 import { FoodProfile, VisionAnalysisResult, Branch, BatchRecord, FoodValidationResult, FoodClassificationResult } from '../../types';
 import { FOOD_PROFILES } from '../../data/initialData';
-import { runDualEngineAnalysis, validateFoodSample, classifyFoodSample, detectWithMobileNet } from '../../utils/visionEngine';
+import { runDualEngineAnalysis, validateFoodSample, classifyFoodSample, detectWithMobileNet, extractFoodROI, computeFractalDimension } from '../../utils/visionEngine';
+import { GUTS_AI_MODELS, DEFAULT_GUTS_MODEL, classifyFoodWithGutsAi } from '../../services/gutsAiService';
 import { playDeviationAlert } from '../../utils/audioAlert';
 
 interface MiniDomeSimulatorProps {
@@ -44,6 +45,13 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
   const [selectedProfile, setSelectedProfile] = useState<FoodProfile>(FOOD_PROFILES[0]);
   const [activeBranchId, setActiveBranchId] = useState(selectedBranchId === 'all' ? 'cikarang' : selectedBranchId);
   const [customImage, setCustomImage] = useState<string | null>(null);
+
+  // Guts AI Model State (Selected from candidate list)
+  const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
+    return localStorage.getItem('rasa_preferred_ai_model') || DEFAULT_GUTS_MODEL;
+  });
+  const [gutsAiMeta, setGutsAiMeta] = useState<{ model: string; latencyMs: number } | null>(null);
+  const [isAiThinking, setIsAiThinking] = useState(false);
 
   // Live Camera state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -147,6 +155,56 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     if (isCameraActive) setTimeout(() => startCamera(), 100);
   };
 
+  // Dual-Tier Food Classification: Local Mathematical Vision + Cloud Guts AI Intelligence
+  const runCloudAndLocalClassification = (
+    imgData: ImageData,
+    fileNameHint?: string
+  ) => {
+    // 1. Instant local sensory classification (0ms baseline)
+    const localRes = classifyFoodSample(imgData, FOOD_PROFILES, fileNameHint);
+    const localMatched = localRes.dynamicProfile || FOOD_PROFILES.find(p => p.id === localRes.detectedProfileId);
+    if (localMatched) {
+      setSelectedProfile(localMatched);
+      setAutoDetectedFood(localRes);
+    }
+
+    // 2. High-precision Cloud AI (Guts AI: Nemotron-3 Super / Ultra / Lightning / Ling / Laguna)
+    const roi = extractFoodROI(imgData);
+    const { df, porosity } = computeFractalDimension(imgData, roi.foodMask);
+
+    setIsAiThinking(true);
+    classifyFoodWithGutsAi(
+      roi.lab,
+      df,
+      porosity,
+      FOOD_PROFILES,
+      fileNameHint,
+      selectedAiModel
+    ).then((gutsRes) => {
+      setIsAiThinking(false);
+      if (gutsRes) {
+        const matched = FOOD_PROFILES.find(p => p.id === gutsRes.detectedProfileId);
+        if (matched) {
+          setSelectedProfile(matched);
+          setAutoDetectedFood({
+            detectedProfileId: matched.id,
+            foodName: matched.name,
+            category: matched.category,
+            confidence: gutsRes.confidence,
+            reason: gutsRes.reason
+          });
+          setGutsAiMeta({
+            model: gutsRes.modelUsed,
+            latencyMs: gutsRes.latencyMs
+          });
+        }
+      }
+    }).catch((err) => {
+      console.warn('Guts AI cloud classification fallback:', err);
+      setIsAiThinking(false);
+    });
+  };
+
   const captureLiveCamera = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -173,26 +231,9 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       setCustomImage(dataUrl);
 
-      // Auto-classify captured food
+      // Trigger dual classification (Local + Cloud AI)
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const classification = classifyFoodSample(imgData, FOOD_PROFILES);
-      const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
-      if (matched) {
-        setSelectedProfile(matched);
-        setAutoDetectedFood(classification);
-      }
-
-      // Deep Learning MobileNet verification in background
-      detectWithMobileNet(canvas).then((dlLabels) => {
-        if (dlLabels && dlLabels.length > 0) {
-          const refined = classifyFoodSample(imgData, FOOD_PROFILES, undefined, dlLabels);
-          const refinedMatched = refined.dynamicProfile || FOOD_PROFILES.find(p => p.id === refined.detectedProfileId);
-          if (refinedMatched) {
-            setSelectedProfile(refinedMatched);
-            setAutoDetectedFood(refined);
-          }
-        }
-      });
+      runCloudAndLocalClassification(imgData);
     } catch (err) {
       console.error("Capture dataURL error:", err);
     }
@@ -218,27 +259,10 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       canvas.height = 360;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      // Auto-classify the loaded image directly from canvas pixels
+      // Auto-classify loaded image via dual pipeline
       try {
         const rawImgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const classification = classifyFoodSample(rawImgData, FOOD_PROFILES);
-        const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
-        if (matched && (!autoDetectedFood || autoDetectedFood.detectedProfileId !== matched.id)) {
-          setSelectedProfile(matched);
-          setAutoDetectedFood(classification);
-        }
-
-        // Deep Learning MobileNet verification in background
-        detectWithMobileNet(canvas).then((dlLabels) => {
-          if (dlLabels && dlLabels.length > 0) {
-            const refined = classifyFoodSample(rawImgData, FOOD_PROFILES, undefined, dlLabels);
-            const refinedMatched = refined.dynamicProfile || FOOD_PROFILES.find(p => p.id === refined.detectedProfileId);
-            if (refinedMatched) {
-              setSelectedProfile(refinedMatched);
-              setAutoDetectedFood(refined);
-            }
-          }
-        });
+        runCloudAndLocalClassification(rawImgData);
       } catch {
         // Continue
       }
@@ -452,24 +476,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
           if (offCtx) {
             offCtx.drawImage(tempImg, 0, 0, 360, 360);
             const imgData = offCtx.getImageData(0, 0, 360, 360);
-            const classification = classifyFoodSample(imgData, FOOD_PROFILES, fileName);
-            const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
-            if (matched) {
-              setSelectedProfile(matched);
-              setAutoDetectedFood(classification);
-            }
-
-            // Deep Learning MobileNet verification
-            detectWithMobileNet(offCanvas).then((dlLabels) => {
-              if (dlLabels && dlLabels.length > 0) {
-                const refined = classifyFoodSample(imgData, FOOD_PROFILES, fileName, dlLabels);
-                const refinedMatched = refined.dynamicProfile || FOOD_PROFILES.find(p => p.id === refined.detectedProfileId);
-                if (refinedMatched) {
-                  setSelectedProfile(refinedMatched);
-                  setAutoDetectedFood(refined);
-                }
-              }
-            });
+            runCloudAndLocalClassification(imgData, fileName);
           }
         };
         tempImg.src = src;
@@ -846,6 +853,50 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               />
             </div>
 
+            {/* Guts AI Cloud Model Selector Bar */}
+            <div className="bg-slate-950/80 border border-slate-800/90 rounded-xl p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Mesin AI Cloud:</span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedAiModel}
+                  onChange={(e) => {
+                    const newModel = e.target.value;
+                    setSelectedAiModel(newModel);
+                    localStorage.setItem('rasa_preferred_ai_model', newModel);
+                    const canvas = canvasRef.current;
+                    if (canvas) {
+                      const ctx = canvas.getContext('2d');
+                      if (ctx) {
+                        try {
+                          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                          runCloudAndLocalClassification(imgData);
+                        } catch {}
+                      }
+                    }
+                  }}
+                  className="bg-slate-900 border border-teal-500/50 text-teal-300 text-[11px] font-bold rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-teal-400 outline-none cursor-pointer hover:border-teal-400 transition-colors"
+                >
+                  {GUTS_AI_MODELS.map((m) => (
+                    <option key={m.id} value={m.id} className="bg-slate-900 text-slate-200">
+                      {m.name} ({m.speed}) • {m.badge}
+                    </option>
+                  ))}
+                </select>
+                {isAiThinking && (
+                  <span className="text-[10px] text-teal-300 font-mono flex items-center gap-1 bg-teal-950/60 px-2 py-0.5 rounded border border-teal-700/50">
+                    <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                    <span>Menganalisis...</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* Active Detected Food Profile Card */}
             <div className="p-3.5 rounded-xl bg-gradient-to-r from-teal-950/80 via-slate-950 to-slate-900 border border-teal-500/50 shadow-md space-y-3">
               <div className="flex items-start justify-between gap-3">
@@ -858,6 +909,12 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                     <span className="text-[10px] font-mono text-emerald-400 font-bold">
                       ({autoDetectedFood ? `${autoDetectedFood.confidence}% Akurat` : 'Realtime Sensor Optik'})
                     </span>
+                    {gutsAiMeta && (
+                      <span className="text-[9px] font-mono text-teal-300 bg-teal-950/80 border border-teal-700/60 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>{gutsAiMeta.model} ({gutsAiMeta.latencyMs}ms)</span>
+                      </span>
+                    )}
                   </div>
                   <h4 className="text-base font-black text-white pt-1">
                     {selectedProfile.name}
