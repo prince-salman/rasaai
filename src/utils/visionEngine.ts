@@ -86,10 +86,21 @@ export function extractFoodROI(imageData: ImageData): FoodROIExtraction {
     // 2. Detect dark shadows/table edges
     const isDarkShadow = maxC < 32;
 
-    // 3. Detect warm culinary colors (fried food, chicken, rice, bread, pastry, etc.)
-    const isCulinaryTone = (chroma >= 18 && (r > b + 10 || g > b + 8)) || (r > 80 && g > 50 && (r + g) > 2.0 * b);
+    // 3. Detect non-food colored surfaces (green plates, blue tablecloths, bright red napkins/tomatoes)
+    const isGreenPlate = (g > r + 20 && g > b + 15);
+    const isRedNapkin = (r > 140 && g < r * 0.40 && b < r * 0.40);
+    const isBlueSurface = (b > r + 15 || b > g + 15);
 
-    if (!isWhiteOrGrayPlate && !isDarkShadow && isCulinaryTone) {
+    // 4. Detect true golden/browning fried culinary colors (tempe, ayam, keripik, pastry, etc.)
+    const isCulinaryTone = (
+      r >= 80 && g >= 55 &&
+      r > b + 18 &&
+      r >= g - 18 &&
+      g >= r * 0.45 &&
+      b < 155
+    );
+
+    if (!isWhiteOrGrayPlate && !isDarkShadow && !isGreenPlate && !isRedNapkin && !isBlueSurface && isCulinaryTone) {
       foodMask[i / 4] = 1;
       sumR += r;
       sumG += g;
@@ -623,33 +634,35 @@ export function classifyFoodSample(
   // Filename keyword check for instant 100% confidence matching
   const fn = (fileNameHint || '').toLowerCase();
   let forcedProfileId: string | null = null;
-  if (fn.includes('nasi') || fn.includes('rice') || fn.includes('fried_rice') || dlStr.includes('fried rice') || dlStr.includes('rice')) {
+  if (fn.includes('nasi') || fn.includes('fried_rice')) {
     forcedProfileId = 'nasi-goreng';
   } else if (
     fn.includes('ayam') || fn.includes('chicken') || fn.includes('poultry') || 
-    fn.includes('kfc') || fn.includes('ktc') || fn.includes('drumstick') || fn.includes('wing') ||
-    dlStr.includes('chicken') || dlStr.includes('rotisserie') || dlStr.includes('drumstick') || dlStr.includes('poultry')
+    fn.includes('kfc') || fn.includes('ktc') || fn.includes('drumstick') || fn.includes('wing')
   ) {
     forcedProfileId = 'ayam-krispi';
-  } else if (fn.includes('keripik') || fn.includes('chips') || fn.includes('singkong') || dlStr.includes('chip') || dlStr.includes('crisp')) {
+  } else if (fn.includes('keripik') || fn.includes('chips') || fn.includes('singkong')) {
     forcedProfileId = 'keripik-kentang';
-  } else if (fn.includes('tempe') || fn.includes('tahu') || fn.includes('tofu')) {
+  } else if (
+    fn.includes('tempe') || fn.includes('tempeh') || fn.includes('mendoan') || 
+    fn.includes('tahu') || fn.includes('tofu') || fn.includes('gorengan')
+  ) {
     forcedProfileId = 'tahu-tempe-crispy';
-  } else if (fn.includes('kentang') || fn.includes('fries') || fn.includes('french') || fn.includes('potato') || dlStr.includes('french fries') || dlStr.includes('potato')) {
+  } else if (fn.includes('kentang') || fn.includes('french_fries') || fn.includes('french fries')) {
     forcedProfileId = 'kentang-goreng';
-  } else if (fn.includes('mie') || fn.includes('noodle') || fn.includes('bakmi') || fn.includes('kwetiau') || dlStr.includes('noodle') || dlStr.includes('carbonara')) {
+  } else if (fn.includes('mie') || fn.includes('bakmi') || fn.includes('kwetiau')) {
     forcedProfileId = 'mie-goreng';
-  } else if (fn.includes('pastry') || fn.includes('croissant') || fn.includes('risol') || fn.includes('puff') || dlStr.includes('croissant') || dlStr.includes('pastry') || dlStr.includes('bakery')) {
+  } else if (fn.includes('pastry') || fn.includes('croissant') || fn.includes('risol') || fn.includes('puff')) {
     forcedProfileId = 'pastry-croissant';
-  } else if (fn.includes('martabak') || fn.includes('lumpia') || dlStr.includes('burrito') || dlStr.includes('taco')) {
+  } else if (fn.includes('martabak') || fn.includes('lumpia')) {
     forcedProfileId = 'martabak-telur';
-  } else if (fn.includes('burger') || fn.includes('sandwich') || dlStr.includes('burger') || dlStr.includes('cheeseburger')) {
+  } else if (fn.includes('burger') || fn.includes('sandwich')) {
     forcedProfileId = 'burger-sandwich';
-  } else if (fn.includes('pizza') || dlStr.includes('pizza')) {
+  } else if (fn.includes('pizza')) {
     forcedProfileId = 'pizza-crust';
   } else if (fn.includes('sate') || fn.includes('satay') || fn.includes('panggang') || fn.includes('bakar')) {
     forcedProfileId = 'sate-panggang';
-  } else if (fn.includes('donat') || fn.includes('donut') || dlStr.includes('doughnut') || dlStr.includes('bagel')) {
+  } else if (fn.includes('donat') || fn.includes('donut')) {
     forcedProfileId = 'donat-roti';
   } else if (fn.includes('ikan') || fn.includes('fish') || fn.includes('seafood') || fn.includes('udang')) {
     forcedProfileId = 'ikan-crispy';
@@ -689,14 +702,20 @@ export function classifyFoodSample(
       if (df >= 1.70 && df <= 1.79) {
         score += 15;
       }
+      if (dlStr.includes('rice') || dlStr.includes('fried rice')) {
+        score += 25;
+      }
     } else if (p.id === 'tahu-tempe-crispy') {
-      // Tempe / Tahu: golden yellow b*, moderate redness a*, ratio b*/a* >= 2.2
+      // Tempe & Tahu Goreng: golden yellow b*, moderate redness a*, ratio b*/a* >= 2.0
       const ratio = lab.b / Math.max(1, lab.a);
-      if (lab.b >= 31 && lab.a <= 14 && ratio >= 2.2) {
-        score += 26;
+      if (lab.b >= 28 && lab.a >= 7.5 && lab.a <= 14.5 && ratio >= 2.0) {
+        score += 42;
       }
       if (df >= 1.78 && df <= 1.88) {
-        score += 10;
+        score += 15;
+      }
+      if (dlStr.includes('tempeh') || dlStr.includes('tofu') || dlStr.includes('fritter')) {
+        score += 30;
       }
     } else if (p.id === 'ayam-krispi') {
       // Ayam Goreng: deep browning with higher redness a* >= 12.8, rich crumbly batter
@@ -708,6 +727,9 @@ export function classifyFoodSample(
       }
       if (lab.a >= 14.5) {
         score += 20;
+      }
+      if (dlStr.includes('chicken') || dlStr.includes('rotisserie') || dlStr.includes('drumstick')) {
+        score += 25;
       }
     } else if (p.id === 'keripik-kentang') {
       // Keripik: thin crisp, light color (L* >= 65), low redness (a* <= 10.5).
@@ -722,17 +744,21 @@ export function classifyFoodSample(
         score += 14;
       }
     } else if (p.id === 'kentang-goreng') {
-      // Kentang Goreng: prominent bright yellow b* >= 35, low redness a* <= 12
-      if (lab.a >= 13.5) {
-        score -= 25;
+      // Kentang Goreng: thin pale yellow potato strips. Very low redness a* <= 9.2.
+      // Must NOT steal from Tempe Goreng!
+      if (lab.a >= 9.8) {
+        score -= 45;
       }
-      if (lab.b >= 35 && lab.a <= 12 && lab.l >= 62) {
-        score += 30;
+      if (lab.b >= 38 && lab.a <= 9.2 && lab.l >= 68) {
+        score += 15;
       }
     } else if (p.id === 'mie-goreng') {
       // Mie Goreng: soy-coated strands, lower lightness, moderate redness
       if (lab.l <= 56 && lab.b <= 32 && stdDevLum >= 10) {
         score += 24;
+      }
+      if (dlStr.includes('noodle')) {
+        score += 25;
       }
     } else if (p.id === 'pastry-croissant') {
       // Pastry: butter caramel browning L* 55-62, moderate redness a* >= 14
@@ -776,7 +802,7 @@ export function classifyFoodSample(
   if (bestProfile.id === 'nasi-goreng') {
     detectedReason = `Tekstur butiran nasi terkaramelisasi (L*=${lab.l}, Df=${df}) & aroma wajan (Wok Hei)`;
   } else if (bestProfile.id === 'tahu-tempe-crispy') {
-    detectedReason = `Spektrum warna kuning kedelai (b*=${lab.b}) & pori kremesan (Df=${df})`;
+    detectedReason = `Spektrum warna kuning kedelai bumbu ketumbar (b*=${lab.b}) & pori renyah tempe/tahu (Df=${df})`;
   } else if (bestProfile.id === 'ayam-krispi') {
     detectedReason = `Kerak browning Maillard (a*=${lab.a}) & kontur fraktal ayam (Df=${df})`;
   } else if (bestProfile.id === 'keripik-kentang') {
