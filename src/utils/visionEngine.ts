@@ -41,8 +41,94 @@ export function calculateDeltaE(c1: LabValues, c2: LabValues): number {
   return Math.round(Math.sqrt(dL * dL + da * da + db * db) * 10) / 10;
 }
 
+export interface FoodROIExtraction {
+  avgR: number;
+  avgG: number;
+  avgB: number;
+  lab: LabValues;
+  foodPixelCount: number;
+  totalPixelCount: number;
+  foodRatio: number;
+  foodMask: Uint8Array;
+}
+
+/**
+ * Robustly segments the culinary food region of interest (ROI) from studio/plate backdrops.
+ * Eliminates background interference (such as white plates/tables R>200 or dark shadows)
+ * which would otherwise dilute chromatic redness (a*), browning index, and lightness (L*).
+ */
+export function extractFoodROI(imageData: ImageData): FoodROIExtraction {
+  const width = imageData.width;
+  const height = imageData.height;
+  const data = imageData.data;
+  const totalPixels = width * height;
+  const foodMask = new Uint8Array(totalPixels);
+
+  let sumR = 0, sumG = 0, sumB = 0;
+  let foodCount = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+
+    if (a < 50) continue; // Transparent
+
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+    const chroma = maxC - minC;
+    const brightness = (r + g + b) / 3;
+
+    // 1. Detect bright white/light-gray background (white plates, studio backdrop, white table)
+    const isWhiteOrGrayPlate = (brightness > 180 && chroma < 38) || (r > 210 && g > 210 && b > 210);
+
+    // 2. Detect dark shadows/table edges
+    const isDarkShadow = maxC < 32;
+
+    // 3. Detect warm culinary colors (fried food, chicken, rice, bread, pastry, etc.)
+    const isCulinaryTone = (chroma >= 18 && (r > b + 10 || g > b + 8)) || (r > 80 && g > 50 && (r + g) > 2.0 * b);
+
+    if (!isWhiteOrGrayPlate && !isDarkShadow && isCulinaryTone) {
+      foodMask[i / 4] = 1;
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      foodCount++;
+    }
+  }
+
+  // Fallback if background filter was too strict
+  if (foodCount < totalPixels * 0.05) {
+    sumR = 0; sumG = 0; sumB = 0; foodCount = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      foodMask[i / 4] = 1;
+      sumR += data[i];
+      sumG += data[i + 1];
+      sumB += data[i + 2];
+      foodCount++;
+    }
+  }
+
+  const avgR = Math.round(sumR / Math.max(1, foodCount));
+  const avgG = Math.round(sumG / Math.max(1, foodCount));
+  const avgB = Math.round(sumB / Math.max(1, foodCount));
+  const lab = rgbToCieLab(avgR, avgG, avgB);
+
+  return {
+    avgR,
+    avgG,
+    avgB,
+    lab,
+    foodPixelCount: foodCount,
+    totalPixelCount: totalPixels,
+    foodRatio: foodCount / totalPixels,
+    foodMask
+  };
+}
+
 // True Box-Counting algorithm for Fractal Dimension (Df) on Canvas ImageData
-export function computeFractalDimension(imageData: ImageData): { df: number; porosity: number } {
+export function computeFractalDimension(imageData: ImageData, foodMask?: Uint8Array): { df: number; porosity: number } {
   const width = imageData.width;
   const height = imageData.height;
   const data = imageData.data;
@@ -50,20 +136,28 @@ export function computeFractalDimension(imageData: ImageData): { df: number; por
   // Convert to grayscale & compute gradient / pore threshold
   const binary: Uint8Array = new Uint8Array(width * height);
   let foregroundCount = 0;
+  let relevantArea = 0;
 
   for (let i = 0; i < data.length; i += 4) {
+    const pixelIdx = i / 4;
+    if (foodMask && foodMask[pixelIdx] === 0) {
+      binary[pixelIdx] = 0;
+      continue;
+    }
+    relevantArea++;
+
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
     // Micro-porosity threshold: dark cavities or chromatic boundaries between crust and air voids
     const isPore = lum < 120 || (Math.abs(r - g) > 22 && lum < 165);
-    const pixelIdx = i / 4;
     binary[pixelIdx] = isPore ? 1 : 0;
     if (isPore) foregroundCount++;
   }
 
-  const porosity = Math.round((foregroundCount / (width * height)) * 1000) / 10;
+  const porosityDenom = relevantArea > 100 ? relevantArea : (width * height);
+  const porosity = Math.round((foregroundCount / porosityDenom) * 1000) / 10;
 
   // Grid box sizes: 4, 8, 16, 32, 64
   const boxSizes = [4, 8, 16, 32, 64];
@@ -132,26 +226,13 @@ export function runDualEngineAnalysis(
   const t0 = performance.now();
   const cookingTime = cookingTimeMins ?? profile.cookingTimeMins;
 
-  // 1. CIE-Lab Color Extraction
-  let sumR = 0, sumG = 0, sumB = 0;
-  const d = imageData.data;
-  const count = d.length / 4;
-
-  for (let i = 0; i < d.length; i += 4) {
-    sumR += d[i];
-    sumG += d[i + 1];
-    sumB += d[i + 2];
-  }
-
-  const avgR = Math.round(sumR / count);
-  const avgG = Math.round(sumG / count);
-  const avgB = Math.round(sumB / count);
-
-  const lab = rgbToCieLab(avgR, avgG, avgB);
+  // 1. Food ROI Segmentation & CIE-Lab Color Extraction (filters out white plate / backdrop)
+  const roi = extractFoodROI(imageData);
+  const lab = roi.lab;
   const deltaE = calculateDeltaE(lab, profile.goldenLab);
 
-  // 2. Box-Counting Fractal Dimension (Df)
-  const { df, porosity } = computeFractalDimension(imageData);
+  // 2. Box-Counting Fractal Dimension (Df) within food ROI
+  const { df, porosity } = computeFractalDimension(imageData, roi.foodMask);
 
   // 3. Browning Index (BI) according to Pathare et al. (2013)
   const xParam = (lab.a + 1.75 * lab.l) / (5.645 * lab.l + lab.a - 3.012 * lab.b);
@@ -497,21 +578,13 @@ export function classifyFoodSample(
   const width = imageData.width;
   const height = imageData.height;
   const data = imageData.data;
-  const totalPixels = width * height;
 
-  let sumR = 0, sumG = 0, sumB = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    sumR += data[i];
-    sumG += data[i + 1];
-    sumB += data[i + 2];
-  }
+  // 1. Food ROI Segmentation & CIE-Lab Color Extraction (filters out white plate / backdrop)
+  const roi = extractFoodROI(imageData);
+  const lab = roi.lab;
 
-  const avgR = Math.round(sumR / totalPixels);
-  const avgG = Math.round(sumG / totalPixels);
-  const avgB = Math.round(sumB / totalPixels);
-  const lab = rgbToCieLab(avgR, avgG, avgB);
-
-  const { df, porosity } = computeFractalDimension(imageData);
+  // 2. Box-Counting Fractal Dimension (Df) within food ROI
+  const { df, porosity } = computeFractalDimension(imageData, roi.foodMask);
 
   // Measure granular patch variance (crucial for distinguishing individual rice grains, noodles, and smooth vs rough crusts)
   const blockSize = 20;
@@ -525,18 +598,23 @@ export function classifyFoodSample(
       let bCount = 0;
       for (let y = by * blockSize; y < (by + 1) * blockSize; y += 2) {
         for (let x = bx * blockSize; x < (bx + 1) * blockSize; x += 2) {
-          const idx = (y * width + x) * 4;
+          const pixelIdx = y * width + x;
+          if (roi.foodMask && roi.foodMask[pixelIdx] === 0) continue;
+          const idx = pixelIdx * 4;
           const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
           bSum += lum;
           bCount++;
         }
       }
-      blockMeans.push(bSum / bCount);
+      if (bCount > (blockSize * blockSize) / 8) {
+        blockMeans.push(bSum / bCount);
+      }
     }
   }
 
-  let meanBlockLum = blockMeans.reduce((a, b) => a + b, 0) / blockMeans.length;
-  let varianceLum = blockMeans.reduce((acc, val) => acc + Math.pow(val - meanBlockLum, 2), 0) / blockMeans.length;
+  const validBlocks = blockMeans.length > 0 ? blockMeans : [50];
+  let meanBlockLum = validBlocks.reduce((a, b) => a + b, 0) / validBlocks.length;
+  let varianceLum = validBlocks.reduce((acc, val) => acc + Math.pow(val - meanBlockLum, 2), 0) / validBlocks.length;
   let stdDevLum = Math.sqrt(varianceLum);
 
   // Check deep learning labels if supplied
@@ -547,7 +625,11 @@ export function classifyFoodSample(
   let forcedProfileId: string | null = null;
   if (fn.includes('nasi') || fn.includes('rice') || fn.includes('fried_rice') || dlStr.includes('fried rice') || dlStr.includes('rice')) {
     forcedProfileId = 'nasi-goreng';
-  } else if (fn.includes('ayam') || fn.includes('chicken') || fn.includes('poultry') || fn.includes('kfc') || dlStr.includes('chicken') || dlStr.includes('rotisserie')) {
+  } else if (
+    fn.includes('ayam') || fn.includes('chicken') || fn.includes('poultry') || 
+    fn.includes('kfc') || fn.includes('ktc') || fn.includes('drumstick') || fn.includes('wing') ||
+    dlStr.includes('chicken') || dlStr.includes('rotisserie') || dlStr.includes('drumstick') || dlStr.includes('poultry')
+  ) {
     forcedProfileId = 'ayam-krispi';
   } else if (fn.includes('keripik') || fn.includes('chips') || fn.includes('singkong') || dlStr.includes('chip') || dlStr.includes('crisp')) {
     forcedProfileId = 'keripik-kentang';
@@ -617,23 +699,33 @@ export function classifyFoodSample(
         score += 10;
       }
     } else if (p.id === 'ayam-krispi') {
-      // Ayam Goreng: deep browning with higher redness a* >= 13.5, rich crumbly batter
-      if (lab.a >= 13.5 && lab.l <= 64 && lab.b >= 33) {
-        score += 26;
+      // Ayam Goreng: deep browning with higher redness a* >= 12.8, rich crumbly batter
+      if (lab.a >= 12.8 && lab.l <= 66 && lab.b >= 30) {
+        score += 35;
       }
-      if (df >= 1.82) {
+      if (df >= 1.80) {
         score += 12;
       }
+      if (lab.a >= 14.5) {
+        score += 20;
+      }
     } else if (p.id === 'keripik-kentang') {
-      // Keripik: bright L* >= 64, thin crisp Df >= 1.88, low redness a* <= 11
-      if (lab.l >= 64 && lab.a <= 11) {
+      // Keripik: thin crisp, light color (L* >= 65), low redness (a* <= 10.5).
+      // IMPORTANT: Penalize heavily if a* >= 12.5 (fried chicken or pastry should NEVER be keripik)
+      if (lab.a >= 12.5) {
+        score -= 45;
+      }
+      if (lab.l >= 65 && lab.a <= 10.5) {
         score += 28;
       }
-      if (df >= 1.88) {
+      if (df >= 1.88 && lab.a <= 10.5) {
         score += 14;
       }
     } else if (p.id === 'kentang-goreng') {
       // Kentang Goreng: prominent bright yellow b* >= 35, low redness a* <= 12
+      if (lab.a >= 13.5) {
+        score -= 25;
+      }
       if (lab.b >= 35 && lab.a <= 12 && lab.l >= 62) {
         score += 30;
       }

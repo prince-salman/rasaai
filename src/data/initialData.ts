@@ -135,23 +135,6 @@ export const SEVEN_DAY_TREND = [
 
 export const FOOD_PROFILES: FoodProfile[] = [
   {
-    id: 'nasi-goreng',
-    name: 'Nasi Goreng (Fried Rice)',
-    category: 'Olahan Beras & Bumbu Tradisional',
-    subtitle: 'Tekstur pulen terpisah butir demi butir dengan aroma karamelisasi wajan (Wok Hei)',
-    targetHardnessN: 13.5,
-    hardnessMinN: 10.0,
-    hardnessMaxN: 17.5,
-    targetCrispness: 90,
-    targetDf: 1.74,
-    goldenLab: { l: 56.5, a: 12.8, b: 31.4 },
-    optimalOilTempC: 180,
-    cookingTimeMins: 5,
-    sniStandard: 'SNI 01-4320-1996 (Nasi Olahan Cepat Saji)',
-    description: 'Standar mutu nasi goreng terstandar: butiran nasi terpisah (tidak menggumpal), bumbu kecap terkaramelisasi merata tanpa gosong, kadar air terkontrol.',
-    sampleImage: '/assets/sample_ayam_golden.jpg'
-  },
-  {
     id: 'ayam-krispi',
     name: 'Ayam Goreng Krispi (Fried Chicken)',
     category: 'Unggas Olahan Berlapis Tepung',
@@ -166,6 +149,23 @@ export const FOOD_PROFILES: FoodProfile[] = [
     cookingTimeMins: 12,
     sniStandard: 'SNI 7388:2009 & Pedoman IKM Kemenperin 2024',
     description: 'Standar resep emas gorengan tepung berlapis bumbu kuning. Lapisan kerak memiliki rongga udara seragam dan pelepasan energi mekanik optimal saat digigit.',
+    sampleImage: '/assets/sample_ayam_golden.jpg'
+  },
+  {
+    id: 'nasi-goreng',
+    name: 'Nasi Goreng (Fried Rice)',
+    category: 'Olahan Beras & Bumbu Tradisional',
+    subtitle: 'Tekstur pulen terpisah butir demi butir dengan aroma karamelisasi wajan (Wok Hei)',
+    targetHardnessN: 13.5,
+    hardnessMinN: 10.0,
+    hardnessMaxN: 17.5,
+    targetCrispness: 90,
+    targetDf: 1.74,
+    goldenLab: { l: 56.5, a: 12.8, b: 31.4 },
+    optimalOilTempC: 180,
+    cookingTimeMins: 5,
+    sniStandard: 'SNI 01-4320-1996 (Nasi Olahan Cepat Saji)',
+    description: 'Standar mutu nasi goreng terstandar: butiran nasi terpisah (tidak menggumpal), bumbu kecap terkaramelisasi merata tanpa gosong, kadar air terkontrol.',
     sampleImage: '/assets/sample_ayam_golden.jpg'
   },
   {

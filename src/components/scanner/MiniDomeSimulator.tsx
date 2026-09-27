@@ -920,7 +920,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
                   }}
                   className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold"
                 >
-                  Gunakan Preset
+                  Reset Sampel Default
                 </button>
               </div>
             )}
