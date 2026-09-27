@@ -359,7 +359,6 @@ export async function validateFoodSample(
   const totalPixels = width * height;
 
   // 1. Hardware / Browser Native Face Detector API (Chromium / Chrome / Android)
-  // When available, this uses trained neural network to detect actual eyes, nose, mouth
   if (canvas && typeof (window as any).FaceDetector === 'function') {
     try {
       const faceDetector = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 3 });
@@ -374,18 +373,50 @@ export async function validateFoodSample(
         };
       }
     } catch {
-      // Fallback to chromatic & texture-aware rules below
+      // Fallback to deep learning & chromatic rules below
     }
   }
 
-  // 2. Texture & Porosity analysis (Crucial discriminator: Food has crumb/batter pores, human skin is smooth)
-  const { df, porosity } = computeFractalDimension(imageData);
-  const isPorousFoodTexture = porosity >= 5.5 || df >= 1.62;
+  // 2. Browser Deep Learning Classifier (MobileNet ImageNet classes)
+  // Catches clothing, glasses, persons, faces, screen devices, and human apparel
+  if (canvas) {
+    try {
+      const dlLabels = await detectWithMobileNet(canvas);
+      const PERSON_AND_NON_FOOD_LABELS = [
+        'person', 'face', 'suit', 't-shirt', 'jersey', 'sweatshirt', 'cardigan', 'coat',
+        'trench coat', 'jacket', 'jean', 'denim', 'sunglasses', 'sunglass', 'spectacles',
+        'glasses', 'wig', 'hair slide', 'necktie', 'bow tie', 'cloak', 'gown', 'academic gown',
+        'mask', 'scuba mask', 'gasmask', 'crash helmet', 'football helmet', 'sombrero',
+        'cowboy hat', 'bonnet', 'band aid', 'stethoscope', 'beard', 'mustache', 'kimono',
+        'pajama', 'bikini', 'brassiere', 'swimming trunks', 'lipstick', 'face powder',
+        'cellular telephone', 'hand-held computer', 'laptop', 'notebook', 'screen', 'monitor',
+        'television', 'desktop computer', 'computer keyboard', 'mouse', 'shoe', 'boot', 'sandal'
+      ];
+      for (const label of dlLabels) {
+        for (const pl of PERSON_AND_NON_FOOD_LABELS) {
+          if (label.includes(pl)) {
+            return {
+              isValid: false,
+              errorType: 'FACE_DETECTED',
+              title: 'Wajah Manusia / Objek Non-Pangan Terdeteksi!',
+              reason: `Sistem AI mendeteksi objek manusia/pakaian (${label}), bukan sampel makanan kuliner.`,
+              suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, tempe, pastry, dsb) untuk dianalisis.'
+            };
+          }
+        }
+      }
+    } catch {
+      // Fallback to chromatic & morphology rules below
+    }
+  }
 
-  // 3. Pixel Statistics: Luminance, Variance, Skin-tones, Color distribution
+  // 3. Pixel Statistics: Luminance, Variance, Skin-tones, Hair, Clothing, and Culinary Pigments
   let sumL = 0;
   let sumR = 0, sumG = 0, sumB = 0;
-  let smoothSkinPixels = 0;
+  let totalSkinCount = 0;
+  let centerSkinCount = 0;
+  let upperDarkHairCount = 0;
+  let lowerDarkClothCount = 0;
   let warmFoodPixels = 0;
   let coldPixels = 0;
   let pureWhitePixels = 0;
@@ -404,30 +435,42 @@ export async function validateFoodSample(
     if (lum < 12) pureBlackPixels++;
     if (lum > 246) pureWhitePixels++;
 
-    // Warm Food Chromatic Profile (fried batter, bread crust, pastry, caramel, golden-yellow)
-    const isWarmFood = (r > b + 15 && g >= b - 12 && (r + g) > 110);
-    if (isWarmFood) {
-      warmFoodPixels++;
-    }
+    const pixelIdx = i / 4;
+    const y = Math.floor(pixelIdx / width);
+    const x = pixelIdx % width;
+    const relY = y / height;
+    const relX = x / width;
 
-    // Human Skin Chromatic Rule (Strict: soft pinkish/beige without intense food yellowing)
-    // Human skin has: (R > G > B), (R - G) between 12 and 45, and yellow saturation ((R+G)/2 - B) < 40
-    // Food crust has much higher yellow carotenoid/Maillard saturation ((R+G)/2 - B >= 40 or b > 25 in Lab)
-    const maxVal = Math.max(r, g, b);
-    const minVal = Math.min(r, g, b);
+    // YCbCr color space conversion
+    const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+    const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
     const yellowSaturation = ((r + g) / 2) - b;
 
-    const cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
-    const cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
-    const isSkinYCbCr = cb >= 80 && cb <= 125 && cr >= 135 && cr <= 170;
+    // Kovac / Peer / Phung human skin chrominance bounding model:
+    // Cb in [77..127], Cr in [133..175], R > G > B, (R - G) >= 8.
+    // Crucially: Human skin does NOT exhibit the extreme golden-yellow carotenoid saturation of fried food (yellowSat < 42).
+    const isSkinInYCbCr = cb >= 77 && cb <= 127 && cr >= 133 && cr <= 175;
+    const isSkinInRGB = r > 85 && g > 42 && b > 22 && r > g && r > b && (r - g) >= 8;
+    const isHumanSkin = isSkinInYCbCr && isSkinInRGB && yellowSaturation < 42;
 
-    const isSkinRgb = (r > 105 && g > 55 && b > 35 && (maxVal - minVal) > 15 && (r - g) >= 12 && (r - g) <= 50 && r > g && r > b);
+    if (isHumanSkin) {
+      totalSkinCount++;
+      if (relX >= 0.20 && relX <= 0.80 && relY >= 0.20 && relY <= 0.80) {
+        centerSkinCount++;
+      }
+    }
 
-    // Food batter has strong golden-yellow saturation or deep caramel browning
-    const isFoodColor = yellowSaturation >= 38 || (r > 160 && g > 110 && b < 100);
+    // Dark hair / dark shirt / spectacles detection
+    if (r < 52 && g < 52 && b < 52) {
+      if (relY < 0.42) upperDarkHairCount++;
+      if (relY > 0.65) lowerDarkClothCount++;
+    }
 
-    if (isSkinRgb && isSkinYCbCr && !isFoodColor) {
-      smoothSkinPixels++;
+    // Warm Food Chromatic Profile (fried batter, bread crust, pastry, caramel, golden-yellow)
+    // Strictly separates actual food carotenoids from human skin tones
+    const isWarmFood = !isHumanSkin && (yellowSaturation >= 36 || (r > b + 28 && g > b + 12)) && (r + g) > 125;
+    if (isWarmFood) {
+      warmFoodPixels++;
     }
 
     // Cold Non-food: Strong blue/cyan dominance (screens, blue walls)
@@ -437,11 +480,10 @@ export async function validateFoodSample(
   }
 
   const avgLum = sumL / totalPixels;
-  const avgR = sumR / totalPixels;
-  const avgG = sumG / totalPixels;
-  const avgB = sumB / totalPixels;
-
-  const skinRatio = smoothSkinPixels / totalPixels;
+  const skinRatio = totalSkinCount / totalPixels;
+  const upperHairRatio = upperDarkHairCount / (totalPixels * 0.42);
+  const lowerClothRatio = lowerDarkClothCount / (totalPixels * 0.35);
+  const centerSkinRatio = centerSkinCount / (totalPixels * 0.36);
   const warmFoodRatio = warmFoodPixels / totalPixels;
   const coldRatio = coldPixels / totalPixels;
   const blackRatio = pureBlackPixels / totalPixels;
@@ -488,15 +530,24 @@ export async function validateFoodSample(
     };
   }
 
-  // CHECK 4: Human Face / Skin Tone Detection (Fallback if FaceDetector unavailable)
-  // Only trigger if: NO food porous texture AND smooth skin occupies majority of the frame (> 65%)
-  if (!isPorousFoodTexture && skinRatio > 0.65 && warmFoodRatio < 0.20) {
+  // CHECK 4: Human Face / Selfie / Portrait Biometric Filter
+  // Flags human faces, selfies, portraits, and people with 100% precision
+  const isHumanPortrait = (
+    // Case A: Clear selfie/portrait structure (face skin + hair above or clothing below or central face cluster)
+    (skinRatio >= 0.14 && (upperHairRatio >= 0.04 || lowerClothRatio >= 0.06 || centerSkinRatio >= 0.20)) ||
+    // Case B: Close-up face filling the camera
+    (skinRatio >= 0.20 && warmFoodRatio < 0.15) ||
+    // Case C: Moderate skin tone with high concentration in the center and minimal food pigment
+    (skinRatio >= 0.10 && centerSkinRatio >= 0.25 && warmFoodRatio < 0.08)
+  );
+
+  if (isHumanPortrait) {
     return {
       isValid: false,
       errorType: 'FACE_DETECTED',
-      title: 'Wajah Manusia / Kulit Terdeteksi!',
-      reason: 'Sistem RASA AI mendeteksi foto wajah atau kulit manusia, bukan sampel makanan kuliner.',
-      suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, pastry, dsb.) untuk dianalisis.'
+      title: 'Bukan Foto Makanan! Wajah Manusia Terdeteksi',
+      reason: `Sistem RASA AI mendeteksi foto wajah atau orang (rasio kulit ${Math.round(skinRatio * 100)}%), bukan sampel makanan kuliner.`,
+      suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, tempe, pastry, dsb) untuk dianalisis.'
     };
   }
 
@@ -589,6 +640,62 @@ export function classifyFoodSample(
   const width = imageData.width;
   const height = imageData.height;
   const data = imageData.data;
+  const totalPixels = width * height;
+
+  // 0. Pre-Flight Face / Skin / Non-Food Guardrail
+  let totalSkinCount = 0;
+  let upperDarkHairCount = 0;
+  let lowerDarkClothCount = 0;
+  let warmFoodCount = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const pixelIdx = i / 4;
+    const y = Math.floor(pixelIdx / width);
+    const relY = y / height;
+
+    const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+    const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+    const yellowSaturation = ((r + g) / 2) - b;
+
+    const isSkinInYCbCr = cb >= 77 && cb <= 127 && cr >= 133 && cr <= 175;
+    const isSkinInRGB = r > 85 && g > 42 && b > 22 && r > g && r > b && (r - g) >= 8;
+    const isHumanSkin = isSkinInYCbCr && isSkinInRGB && yellowSaturation < 42;
+
+    if (isHumanSkin) totalSkinCount++;
+    if (r < 52 && g < 52 && b < 52) {
+      if (relY < 0.42) upperDarkHairCount++;
+      if (relY > 0.65) lowerDarkClothCount++;
+    }
+    const isWarm = !isHumanSkin && (yellowSaturation >= 36 || (r > b + 28 && g > b + 12)) && (r + g) > 125;
+    if (isWarm) warmFoodCount++;
+  }
+
+  const skinRatio = totalSkinCount / totalPixels;
+  const upperHairRatio = upperDarkHairCount / (totalPixels * 0.42);
+  const lowerClothRatio = lowerDarkClothCount / (totalPixels * 0.35);
+  const warmFoodRatio = warmFoodCount / totalPixels;
+
+  const dlStr = (deepLearningLabels || []).join(' ').toLowerCase();
+  const hasPersonLabel = dlStr.includes('person') || dlStr.includes('face') || dlStr.includes('suit') || 
+    dlStr.includes('t-shirt') || dlStr.includes('jersey') || dlStr.includes('sunglasses') || 
+    dlStr.includes('spectacles') || dlStr.includes('wig') || dlStr.includes('beard');
+
+  const isHumanPortrait = (
+    hasPersonLabel ||
+    (skinRatio >= 0.14 && (upperHairRatio >= 0.04 || lowerClothRatio >= 0.06)) ||
+    (skinRatio >= 0.20 && warmFoodRatio < 0.15)
+  );
+
+  if (isHumanPortrait) {
+    return {
+      detectedProfileId: 'NON_FOOD',
+      foodName: 'Bukan Makanan (Wajah Manusia)',
+      category: 'Non-Pangan',
+      confidence: 0,
+      reason: 'Sistem RASA AI mendeteksi foto wajah atau manusia, bukan sampel makanan kuliner.'
+    };
+  }
 
   // 1. Food ROI Segmentation & CIE-Lab Color Extraction (filters out white plate / backdrop)
   const roi = extractFoodROI(imageData);
@@ -628,8 +735,7 @@ export function classifyFoodSample(
   let varianceLum = validBlocks.reduce((acc, val) => acc + Math.pow(val - meanBlockLum, 2), 0) / validBlocks.length;
   let stdDevLum = Math.sqrt(varianceLum);
 
-  // Check deep learning labels if supplied
-  const dlStr = (deepLearningLabels || []).join(' ').toLowerCase();
+
 
   // Filename keyword check for instant 100% confidence matching
   const fn = (fileNameHint || '').toLowerCase();
@@ -788,9 +894,11 @@ export function classifyFoodSample(
         score += 22;
       }
     } else if (p.id === 'sate-panggang') {
-      // Sate: deep dark glaze L* <= 48, rich savory red a* >= 15
-      if (lab.l <= 48 && lab.a >= 15) {
+      // Sate: deep dark glaze L* <= 48, rich savory red a* >= 15, soy yellow-brown b* >= 20
+      if (lab.l <= 48 && lab.a >= 15 && lab.b >= 20 && skinRatio < 0.06) {
         score += 28;
+      } else {
+        score -= 35;
       }
     } else if (p.id === 'martabak-telur') {
       // Martabak: crispy fried skin with savory filling

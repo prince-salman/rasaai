@@ -84,7 +84,7 @@ export interface NotificationItem {
 
 export interface FoodValidationResult {
   isValid: boolean;
-  errorType?: 'FACE_DETECTED' | 'NOT_FOOD_COLOR' | 'TOO_DARK' | 'TOO_BRIGHT' | 'BLANK_TEXTURE';
+  errorType?: 'FACE_DETECTED' | 'NOT_FOOD_COLOR' | 'TOO_DARK' | 'TOO_BRIGHT' | 'BLANK_TEXTURE' | 'NON_FOOD_OBJECT';
   title?: string;
   reason?: string;
   suggestion?: string;

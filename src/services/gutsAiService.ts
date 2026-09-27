@@ -93,8 +93,11 @@ export interface GutsClassificationResult {
  */
 function deriveVisualCues(lab: LabValues, df: number): string {
   const cues: string[] = [];
-  
-  if (lab.a >= 17.0) {
+
+  // Check if spectral values resemble human skin tones (b* < 24, a* 7-20) rather than culinary golden-yellow
+  if (lab.b < 24 && lab.a >= 7 && lab.a <= 20 && lab.l >= 30 && lab.l <= 75) {
+    cues.push('spektrum rona kulit manusia (b* rendah non-kuliner) tanpa pigmen karotenoid keemasan');
+  } else if (lab.a >= 17.0) {
     cues.push('rona kemerahan-oranye pekat khas ekor udang krispi atau olahan seafood');
   } else if (lab.l >= 64 && lab.b >= 34 && lab.a <= 13.5) {
     cues.push('warna kuning keemasan bumbu kunyit kedelai khas tempe/tahu goreng');
@@ -102,7 +105,7 @@ function deriveVisualCues(lab: LabValues, df: number): string {
     cues.push('warna cokelat keemasan Maillard browning khas kerak ayam goreng');
   } else if (lab.l >= 66 && lab.a <= 10.0) {
     cues.push('warna cerah kuning getas khas keripik atau kentang');
-  } else if (lab.l <= 52 && lab.a >= 14.0) {
+  } else if (lab.l <= 52 && lab.a >= 14.0 && lab.b >= 22.0) {
     cues.push('warna kecokelatan gelap karamel kecap panggangan');
   }
 
@@ -156,7 +159,12 @@ Data Sampel:
 Daftar Acuan Profil Standar Mutu SNI:
 ${profilesListText}
 
-PANDUAN KLASIFIKASI:
+PERINGATAN VALIDASI MUTLAK:
+- Bila rona spektral menyerupai kulit manusia (b* < 24) atau deskripsi visual menyebut kulit/wajah manusia/objek non-kuliner, Anda WAJIB menjawab:
+{"detectedProfileId": "NON_FOOD", "foodName": "Bukan Makanan (Wajah Manusia)", "confidence": 99, "reason": "Data citra terdeteksi sebagai wajah/kulit manusia, bukan sampel makanan kuliner."}
+- DILARANG KERAS mengklasifikasikan wajah orang sebagai sate atau daging!
+
+PANDUAN KLASIFIKASI KULINER:
 - Bila rona merah kemerahan sangat tinggi (a* >= 17) atau ada tampak ekor oranye, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
 - Bila warna kuning keemasan (b* tinggi) dan ada aroma kedelai/kunyit/daun bawang, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
 - Bila warna cokelat browning Maillard (a* 13-17) dan kerak ayam krispi, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
@@ -182,18 +190,25 @@ PANDUAN KLASIFIKASI:
                 {
                   type: 'text',
                   text: `Anda adalah sistem pakar Computer Vision RASA AI (CPPOB BPOM & SNI Indonesia).
-Lihat foto makanan ini dengan seksama. Kenali objeknya secara presisi (apakah udang goreng dengan ekor kemerahan, ayam goreng berpori, tempe mendoan berdaun bawang, keripik, kentang, dsb).
+Lihat foto ini dengan seksama.
 
-Pilihan Profil SNI:
+PERINGATAN SANGAT PENTING (VALIDASI OBJEK MUTLAK):
+Periksa terlebih dahulu apakah foto ini adalah MAKANAN KULINER atau BUKAN:
+- Jika foto menampilkan wajah manusia, selfie, orang, foto profil, tubuh manusia, tangan/kaki, kacamata, pakaian/baju, hewan, perabotan, atau layar/gawai:
+WAJIB KEMBALIKAN HANYA JSON INI:
+{"detectedProfileId": "NON_FOOD", "foodName": "Bukan Makanan (Wajah Manusia / Non-Pangan)", "confidence": 99, "reason": "Objek yang difoto adalah wajah manusia / orang, bukan sampel makanan kuliner."}
+DILARANG KERAS MENGANGGAP WAJAH MANUSIA SEBAGAI SATE, DAGING, AYAM, ATAU MAKANAN APAPUN!
+
+Jika foto terbukti BENAR-BENAR MAKANAN KULINER, pilih dari daftar profil SNI:
 ${profilesListText}
 
-PANDUAN:
-- Perhatikan detail visual: jika tampak ekor udang berwarna oranye/kemerahan, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
+PANDUAN IDENTIFIKASI MAKANAN:
+- Jika tampak ekor udang berwarna oranye/kemerahan, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
 - Jika tampak irisan daun bawang dan butiran kedelai tempe, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
 - Jika berupa potongan ayam bertulang/berkerak browning, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
 
 Jawab HANYA satu objek JSON valid:
-{"detectedProfileId": "id-pilihan", "foodName": "Nama Makanan", "confidence": 98, "reason": "Alasan visual detail (sebutkan bentuk, ekor udang/tulang ayam/tekstur)"}`
+{"detectedProfileId": "id-pilihan", "foodName": "Nama Makanan", "confidence": 98, "reason": "Alasan visual detail"}`
                 },
                 {
                   type: 'image_url',

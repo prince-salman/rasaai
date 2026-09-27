@@ -160,56 +160,102 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     imgData: ImageData,
     fileNameHint?: string
   ) => {
-    // 1. Instant local sensory classification (0ms baseline)
-    const localRes = classifyFoodSample(imgData, FOOD_PROFILES, fileNameHint);
-    const localMatched = localRes.dynamicProfile || FOOD_PROFILES.find(p => p.id === localRes.detectedProfileId);
-    if (localMatched) {
-      setSelectedProfile(localMatched);
-      setAutoDetectedFood(localRes);
-    }
-
-    // 2. High-precision Cloud AI (Guts AI: Nemotron-3 Super / Ultra / Lightning / Ling / Laguna)
-    const roi = extractFoodROI(imgData);
-    const { df, porosity } = computeFractalDimension(imgData, roi.foodMask);
-
-    setIsAiThinking(true);
-    let base64Canvas: string | undefined;
-    if (canvasRef.current) {
-      try {
-        base64Canvas = canvasRef.current.toDataURL('image/jpeg', 0.82);
-      } catch {}
-    }
-
-    classifyFoodWithGutsAi(
-      roi.lab,
-      df,
-      porosity,
-      FOOD_PROFILES,
-      fileNameHint,
-      selectedAiModel,
-      base64Canvas
-    ).then((gutsRes) => {
-      setIsAiThinking(false);
-      if (gutsRes) {
-        const matched = FOOD_PROFILES.find(p => p.id === gutsRes.detectedProfileId);
-        if (matched) {
-          setSelectedProfile(matched);
-          setAutoDetectedFood({
-            detectedProfileId: matched.id,
-            foodName: matched.name,
-            category: matched.category,
-            confidence: gutsRes.confidence,
-            reason: gutsRes.reason
-          });
-          setGutsAiMeta({
-            model: gutsRes.modelUsed,
-            latencyMs: gutsRes.latencyMs
-          });
-        }
+    // 0. Pre-Flight Food Validation Guardrail: Strict Check for Faces, Selfies, and Non-Food Objects
+    validateFoodSample(canvasRef.current, imgData).then((validation) => {
+      if (!validation.isValid) {
+        setFoodValidationError(validation);
+        setAnalysisResult(null);
+        setAutoDetectedFood(null);
+        setIsSynced(false);
+        setIsAiThinking(false);
+        playDeviationAlert();
+        return;
       }
-    }).catch((err) => {
-      console.warn('Guts AI cloud classification fallback:', err);
-      setIsAiThinking(false);
+
+      setFoodValidationError(null);
+
+      // 1. Instant local sensory classification (0ms baseline)
+      const localRes = classifyFoodSample(imgData, FOOD_PROFILES, fileNameHint);
+      if (localRes.detectedProfileId === 'NON_FOOD') {
+        setFoodValidationError({
+          isValid: false,
+          errorType: 'FACE_DETECTED',
+          title: 'Wajah Manusia Terdeteksi!',
+          reason: localRes.reason,
+          suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, tempe, pastry, dsb) untuk dianalisis.'
+        });
+        setAnalysisResult(null);
+        setAutoDetectedFood(null);
+        setIsSynced(false);
+        setIsAiThinking(false);
+        playDeviationAlert();
+        return;
+      }
+
+      const localMatched = localRes.dynamicProfile || FOOD_PROFILES.find(p => p.id === localRes.detectedProfileId);
+      if (localMatched) {
+        setSelectedProfile(localMatched);
+        setAutoDetectedFood(localRes);
+      }
+
+      // 2. High-precision Cloud AI (Guts AI: Gemini 3.7 Vision / Nemotron)
+      const roi = extractFoodROI(imgData);
+      const { df, porosity } = computeFractalDimension(imgData, roi.foodMask);
+
+      setIsAiThinking(true);
+      let base64Canvas: string | undefined;
+      if (canvasRef.current) {
+        try {
+          base64Canvas = canvasRef.current.toDataURL('image/jpeg', 0.82);
+        } catch {}
+      }
+
+      classifyFoodWithGutsAi(
+        roi.lab,
+        df,
+        porosity,
+        FOOD_PROFILES,
+        fileNameHint,
+        selectedAiModel,
+        base64Canvas
+      ).then((gutsRes) => {
+        setIsAiThinking(false);
+        if (gutsRes) {
+          if (gutsRes.detectedProfileId === 'NON_FOOD') {
+            setFoodValidationError({
+              isValid: false,
+              errorType: 'FACE_DETECTED',
+              title: 'Wajah Manusia / Bukan Makanan Terdeteksi!',
+              reason: gutsRes.reason,
+              suggestion: 'Harap hanya mengambil foto sampel makanan kuliner (ayam goreng, keripik, tempe, pastry, dsb).'
+            });
+            setAnalysisResult(null);
+            setAutoDetectedFood(null);
+            setIsSynced(false);
+            playDeviationAlert();
+            return;
+          }
+
+          const matched = FOOD_PROFILES.find(p => p.id === gutsRes.detectedProfileId);
+          if (matched) {
+            setSelectedProfile(matched);
+            setAutoDetectedFood({
+              detectedProfileId: matched.id,
+              foodName: matched.name,
+              category: matched.category,
+              confidence: gutsRes.confidence,
+              reason: gutsRes.reason
+            });
+            setGutsAiMeta({
+              model: gutsRes.modelUsed,
+              latencyMs: gutsRes.latencyMs
+            });
+          }
+        }
+      }).catch((err) => {
+        console.warn('Guts AI cloud classification fallback:', err);
+        setIsAiThinking(false);
+      });
     });
   };
 
@@ -311,25 +357,44 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     };
   }, []);
 
-  const handleTriggerScan = () => {
+  const handleTriggerScan = async () => {
     if (isScanning) return;
     if (isCameraActive) captureLiveCamera();
-
-    setIsScanning(true);
-    setScanProgress(0);
-    setAnalysisResult(null);
-    setFoodValidationError(null);
-    setIsSynced(false);
 
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Immediate Pre-Scan Validation: Halt immediately if face/non-food detected
+    const imgDataStart = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const preValidation = await validateFoodSample(canvas, imgDataStart);
+    if (!preValidation.isValid) {
+      setFoodValidationError(preValidation);
+      setAnalysisResult(null);
+      setAutoDetectedFood(null);
+      setIsSynced(false);
+      playDeviationAlert();
+      return;
+    }
+
     // Auto-classify on scan trigger directly from current image
     try {
-      const imgDataStart = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const classification = classifyFoodSample(imgDataStart, FOOD_PROFILES);
+      if (classification.detectedProfileId === 'NON_FOOD') {
+        setFoodValidationError({
+          isValid: false,
+          errorType: 'FACE_DETECTED',
+          title: 'Wajah Manusia Terdeteksi!',
+          reason: classification.reason,
+          suggestion: 'Harap hanya mengambil foto makanan olahan untuk dianalisis.'
+        });
+        setAnalysisResult(null);
+        setAutoDetectedFood(null);
+        setIsSynced(false);
+        playDeviationAlert();
+        return;
+      }
       const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
       if (matched && (!autoDetectedFood || matched.id !== selectedProfile.id)) {
         setSelectedProfile(matched);
@@ -338,6 +403,12 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     } catch {
       // Continue normal scan
     }
+
+    setIsScanning(true);
+    setScanProgress(0);
+    setAnalysisResult(null);
+    setFoodValidationError(null);
+    setIsSynced(false);
 
     const duration = 3800;
     const startTime = Date.now();
@@ -378,6 +449,21 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
           setFoodValidationError(null);
           // Automatically classify food identity from the scanned photo
           const classification = classifyFoodSample(imgData, FOOD_PROFILES);
+          if (classification.detectedProfileId === 'NON_FOOD') {
+            setFoodValidationError({
+              isValid: false,
+              errorType: 'FACE_DETECTED',
+              title: 'Wajah Manusia Terdeteksi!',
+              reason: classification.reason,
+              suggestion: 'Harap hanya mengambil foto makanan olahan untuk dianalisis.'
+            });
+            setAnalysisResult(null);
+            setAutoDetectedFood(null);
+            setIsSynced(false);
+            playDeviationAlert();
+            return;
+          }
+
           const activeProfile = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId) || selectedProfile;
           setSelectedProfile(activeProfile);
           setAutoDetectedFood(classification);
@@ -811,19 +897,37 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
             {/* One-Touch Hardware Button */}
             <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-col items-center">
               <button
-                disabled={isScanning}
+                disabled={isScanning || !!foodValidationError}
                 onClick={handleTriggerScan}
                 className={`w-full py-3.5 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-xl transition-all ${
                   isScanning 
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700' 
+                    : foodValidationError
+                    ? 'bg-rose-950/80 text-rose-300 border border-rose-700/80 cursor-not-allowed shadow-none'
                     : 'bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-500 hover:from-teal-400 hover:to-emerald-300 text-slate-950 ring-2 ring-teal-400/40 animate-ring-pulse active:scale-[0.98]'
                 }`}
               >
-                <Play className="w-4 h-4 fill-current" />
-                <span>{isScanning ? 'Pengujian Sedang Berlangsung...' : 'UJI SAMPEL SEKARANG (ONE-TOUCH ? 4s)'}</span>
+                {foodValidationError ? (
+                  <>
+                    <XCircle className="w-4 h-4 text-rose-400" />
+                    <span>SAMPEL DITOLAK (WAJAH MANUSIA / NON-PANGAN)</span>
+                  </>
+                ) : isScanning ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Pengujian Sedang Berlangsung...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>UJI SAMPEL SEKARANG (ONE-TOUCH &lt; 4s)</span>
+                  </>
+                )}
               </button>
-              <span className="text-[10px] text-slate-500 mt-1.5">
-                Tombol fisik kubah otomatis memicu iluminasi cincin 5000K & sensor inframerah
+              <span className="text-[10px] text-slate-500 mt-1.5 text-center">
+                {foodValidationError 
+                  ? 'Ganti foto atau arahkan kamera ke makanan kuliner untuk membuka tombol pengujian'
+                  : 'Tombol fisik kubah otomatis memicu iluminasi cincin 5000K & sensor inframerah'}
               </span>
             </div>
 
@@ -905,66 +1009,90 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               </div>
             </div>
 
-            {/* Active Detected Food Profile Card */}
-            <div className="p-3.5 rounded-xl bg-gradient-to-r from-teal-950/80 via-slate-950 to-slate-900 border border-teal-500/50 shadow-md space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[9px] font-extrabold uppercase tracking-wider bg-teal-900 text-teal-300 border border-teal-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <Sparkles className="w-2.5 h-2.5" />
-                      <span>Terdeteksi Otomatis dari Citra</span>
-                    </span>
-                    <span className="text-[10px] font-mono text-emerald-400 font-bold">
-                      ({autoDetectedFood ? `${autoDetectedFood.confidence}% Akurat` : 'Realtime Sensor Optik'})
-                    </span>
-                    {gutsAiMeta && (
-                      <span className="text-[9px] font-mono text-teal-300 bg-teal-950/80 border border-teal-700/60 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                        <span>{gutsAiMeta.model} ({gutsAiMeta.latencyMs}ms)</span>
-                      </span>
-                    )}
+            {/* Active Detected Food Profile Card OR Food Validation Error Alert */}
+            {foodValidationError ? (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-rose-950/90 via-slate-950 to-slate-900 border border-rose-500/80 shadow-lg space-y-2.5 animate-in fade-in">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex-shrink-0 mt-0.5">
+                    <XCircle className="w-5 h-5 animate-pulse" />
                   </div>
-                  <h4 className="text-base font-black text-white pt-1">
-                    {selectedProfile.name}
-                  </h4>
-                  <p className="text-[11px] text-slate-300">
-                    {selectedProfile.category} • <strong className="text-teal-400 font-semibold">{selectedProfile.sniStandard}</strong>
-                  </p>
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase tracking-wider bg-rose-900 text-rose-200 border border-rose-700 px-2 py-0.5 rounded-full inline-block">
+                      {foodValidationError.title || 'Objek Ditolak!'}
+                    </span>
+                    <h4 className="text-sm font-black text-white">
+                      Bukan Sampel Pangan: Terdeteksi Wajah / Manusia
+                    </h4>
+                    <p className="text-xs text-rose-200 leading-relaxed font-medium">
+                      {foodValidationError.reason}
+                    </p>
+                    <p className="text-[10px] text-slate-400 italic pt-0.5">
+                      💡 {foodValidationError.suggestion || 'Harap arahkan kamera hanya ke makanan kuliner (ayam, keripik, tempe, pastry, dsb).'}
+                    </p>
+                  </div>
                 </div>
               </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-teal-950/80 via-slate-950 to-slate-900 border border-teal-500/50 shadow-md space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider bg-teal-900 text-teal-300 border border-teal-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        <span>Terdeteksi Otomatis dari Citra</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                        ({autoDetectedFood ? `${autoDetectedFood.confidence}% Akurat` : 'Realtime Sensor Optik'})
+                      </span>
+                      {gutsAiMeta && (
+                        <span className="text-[9px] font-mono text-teal-300 bg-teal-950/80 border border-teal-700/60 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          <span>{gutsAiMeta.model} ({gutsAiMeta.latencyMs}ms)</span>
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-base font-black text-white pt-1">
+                      {selectedProfile.name}
+                    </h4>
+                    <p className="text-[11px] text-slate-300">
+                      {selectedProfile.category} • <strong className="text-teal-400 font-semibold">{selectedProfile.sniStandard}</strong>
+                    </p>
+                  </div>
+                </div>
 
-              {/* Dynamic Target Metrics (SNI Acuan) */}
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
-                  <span className="text-[9px] text-slate-400 block font-medium">Target Kekerasan (N)</span>
-                  <span className="text-xs font-mono font-bold text-teal-300">
-                    {selectedProfile.targetHardnessN} N
-                  </span>
-                  <span className="text-[9px] text-slate-500 block">({selectedProfile.hardnessMinN}–{selectedProfile.hardnessMaxN} N)</span>
+                {/* Dynamic Target Metrics (SNI Acuan) */}
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+                  <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
+                    <span className="text-[9px] text-slate-400 block font-medium">Target Kekerasan (N)</span>
+                    <span className="text-xs font-mono font-bold text-teal-300">
+                      {selectedProfile.targetHardnessN} N
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">({selectedProfile.hardnessMinN}–{selectedProfile.hardnessMaxN} N)</span>
+                  </div>
+                  <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
+                    <span className="text-[9px] text-slate-400 block font-medium">Target Fraktal Pori</span>
+                    <span className="text-xs font-mono font-bold text-emerald-300">
+                      Df {selectedProfile.targetDf}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">Mikro-porositas</span>
+                  </div>
+                  <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
+                    <span className="text-[9px] text-slate-400 block font-medium">Suhu Masak Acuan</span>
+                    <span className="text-xs font-mono font-bold text-amber-300">
+                      {selectedProfile.optimalOilTempC}°C
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">{selectedProfile.cookingTimeMins} Menit</span>
+                  </div>
                 </div>
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
-                  <span className="text-[9px] text-slate-400 block font-medium">Target Fraktal Pori</span>
-                  <span className="text-xs font-mono font-bold text-emerald-300">
-                    Df {selectedProfile.targetDf}
-                  </span>
-                  <span className="text-[9px] text-slate-500 block">Mikro-porositas</span>
-                </div>
-                <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-lg text-center">
-                  <span className="text-[9px] text-slate-400 block font-medium">Suhu Masak Acuan</span>
-                  <span className="text-xs font-mono font-bold text-amber-300">
-                    {selectedProfile.optimalOilTempC}°C
-                  </span>
-                  <span className="text-[9px] text-slate-500 block">{selectedProfile.cookingTimeMins} Menit</span>
-                </div>
+
+                {autoDetectedFood?.reason && (
+                  <div className="text-[11px] text-slate-300 bg-slate-900/70 p-2 rounded-lg border border-slate-800 flex items-center gap-1.5">
+                    <span className="text-teal-400 font-bold whitespace-nowrap">Karakteristik Visual:</span>
+                    <span className="italic truncate">{autoDetectedFood.reason}</span>
+                  </div>
+                )}
               </div>
-
-              {autoDetectedFood?.reason && (
-                <div className="text-[11px] text-slate-300 bg-slate-900/70 p-2 rounded-lg border border-slate-800 flex items-center gap-1.5">
-                  <span className="text-teal-400 font-bold whitespace-nowrap">Karakteristik Visual:</span>
-                  <span className="italic truncate">{autoDetectedFood.reason}</span>
-                </div>
-              )}
-            </div>
+            )}
 
 
 
