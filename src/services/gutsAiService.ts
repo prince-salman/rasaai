@@ -79,16 +79,17 @@ export interface GutsClassificationResult {
  */
 function deriveVisualCues(lab: LabValues, df: number): string {
   const cues: string[] = [];
+  const yellowRedRatio = lab.b / Math.max(1, lab.a);
 
   // Check if spectral values resemble human skin tones (b* < 24, a* 7-20) rather than culinary golden-yellow
   if (lab.b < 24 && lab.a >= 7 && lab.a <= 20 && lab.l >= 30 && lab.l <= 75) {
     cues.push('spektrum rona kulit manusia (b* rendah non-kuliner) tanpa pigmen karotenoid keemasan');
-  } else if (lab.a >= 17.0) {
-    cues.push('rona kemerahan-oranye pekat khas ekor udang krispi atau olahan seafood');
-  } else if (lab.l >= 64 && lab.b >= 34 && lab.a <= 13.5) {
+  } else if (lab.a >= 21.5 && yellowRedRatio < 1.65) {
+    cues.push('rona kemerahan-oranye pekat astaxanthin khas ekor udang krispi atau olahan seafood');
+  } else if (lab.a >= 12.5 && lab.a <= 20.5 && lab.b >= 28.0) {
+    cues.push('warna cokelat keemasan Maillard browning khas kerak ayam goreng krispi (fried chicken)');
+  } else if (lab.l >= 64 && lab.b >= 32 && lab.a <= 14.5) {
     cues.push('warna kuning keemasan bumbu kunyit kedelai khas tempe/tahu goreng');
-  } else if (lab.a >= 12.8 && lab.a <= 17.5 && lab.l <= 65) {
-    cues.push('warna cokelat keemasan Maillard browning khas kerak ayam goreng');
   } else if (lab.l >= 66 && lab.a <= 10.0) {
     cues.push('warna cerah kuning getas khas keripik atau kentang');
   } else if (lab.l <= 52 && lab.a >= 14.0 && lab.b >= 22.0) {
@@ -152,9 +153,9 @@ PERINGATAN VALIDASI MUTLAK:
 - DILARANG KERAS mengklasifikasikan wajah orang sebagai sate atau daging!
 
 PANDUAN KLASIFIKASI KULINER:
-- Bila rona merah kemerahan sangat tinggi (a* >= 17) atau ada tampak ekor oranye, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
-- Bila warna kuning keemasan (b* tinggi) dan ada aroma kedelai/kunyit/daun bawang, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
-- Bila warna cokelat browning Maillard (a* 13-17) dan kerak ayam krispi, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
+- Potongan paha/dada/sayap ayam berbalut tepung krispi keemasan browning Maillard (a* 12.5-20.5, b* >= 28) adalah "ayam-krispi" (Ayam Goreng Krispi).
+- Warna kuning keemasan kunyit kedelai/daun bawang (a* 7-14.5, b* >= 30) adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
+- Hanya bila ada ekor udang oranye kemerahan astaxanthin nyata (a* >= 21.5 dan b*/a* < 1.65) maka itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai). Dilarang keras menganggap ayam goreng krispi sebagai udang!
 - Jangan samakan Tempe Goreng dengan Kentang Goreng (French Fries).
 - Berikan output HANYA satu objek JSON valid tanpa pembungkus markdown apapun:
 {"detectedProfileId": "id-pilihan", "foodName": "Nama Makanan", "confidence": 98, "reason": "Alasan singkat deteksi"}`;
@@ -163,7 +164,7 @@ PANDUAN KLASIFIKASI KULINER:
     const t0 = performance.now();
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8500); // 8.5s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for reliable multimodal response
 
       let requestBody: any;
 
@@ -190,9 +191,10 @@ Jika foto terbukti BENAR-BENAR MAKANAN KULINER, pilih dari daftar profil SNI:
 ${profilesListText}
 
 PANDUAN IDENTIFIKASI MAKANAN:
-- Jika tampak ekor udang berwarna oranye/kemerahan, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai).
-- Jika tampak irisan daun bawang dan butiran kedelai tempe, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
-- Jika berupa potongan ayam bertulang/berkerak browning, itu adalah "ayam-krispi" (Ayam Goreng Krispi).
+- Jika berupa potongan paha/dada/sayap ayam berkerak tepung renyah browning keemasan (fried chicken/ayam goreng tepung), itu adalah "ayam-krispi" (Ayam Goreng Krispi).
+- Jika tampak irisan tempe berbutir kedelai atau tahu berbalut tepung daun bawang, itu adalah "tahu-tempe-crispy" (Tempe & Tahu Goreng).
+- Jika tampak jelas ekor udang kemerahan atau bentuk memanjang udang ebi furai/tempura seafood, itu adalah "udang-crispy" (Udang Goreng Tepung / Ebi Furai). Dilarang menganggap ayam goreng krispi sebagai udang!
+- Jika berupa keripik tipis getas kentang/singkong/tempe keripik, itu adalah "keripik-kentang".
 
 Jawab HANYA satu objek JSON valid:
 {"detectedProfileId": "id-pilihan", "foodName": "Nama Makanan", "confidence": 98, "reason": "Alasan visual detail"}`
@@ -204,7 +206,7 @@ Jawab HANYA satu objek JSON valid:
               ]
             }
           ],
-          max_tokens: 200,
+          max_tokens: 350,
           temperature: 0.1
         };
       } else {
@@ -213,7 +215,7 @@ Jawab HANYA satu objek JSON valid:
           messages: [
             { role: 'user', content: textSystemPrompt }
           ],
-          max_tokens: 250,
+          max_tokens: 280,
           temperature: 0.1
         };
       }
@@ -239,23 +241,34 @@ Jawab HANYA satu objek JSON valid:
       const rawMsg = data.choices?.[0]?.message;
       if (!rawMsg) continue;
 
-      let replyText = (rawMsg.content || rawMsg.reasoning || '').trim();
+      let replyText = (rawMsg.content || '').trim();
+      if (!replyText) {
+        replyText = (rawMsg.reasoning || '').trim();
+      }
 
       // Extract JSON substring if model wrapped it in markdown or prose
-      const jsonMatch = replyText.match(/\{[\s\S]*?\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.detectedProfileId) {
-          const latencyMs = Math.round(performance.now() - t0);
-          return {
-            detectedProfileId: parsed.detectedProfileId,
-            foodName: parsed.foodName || 'Makanan Terdeteksi',
-            confidence: Math.min(99, Math.max(88, Number(parsed.confidence) || 96)),
-            reason: parsed.reason || `Identifikasi presisi Guts AI (${model})`,
-            modelUsed: model,
-            latencyMs
-          };
+      let parsed: any = null;
+      const jsonBlockMatch = replyText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      if (jsonBlockMatch) {
+        try { parsed = JSON.parse(jsonBlockMatch[1]); } catch {}
+      }
+      if (!parsed) {
+        const match = replyText.match(/\{[^{}]*"detectedProfileId"[^{}]*\}/) || replyText.match(/\{[\s\S]*?\}/);
+        if (match) {
+          try { parsed = JSON.parse(match[0]); } catch {}
         }
+      }
+
+      if (parsed && parsed.detectedProfileId) {
+        const latencyMs = Math.round(performance.now() - t0);
+        return {
+          detectedProfileId: parsed.detectedProfileId,
+          foodName: parsed.foodName || 'Makanan Terdeteksi',
+          confidence: Math.min(99, Math.max(88, Number(parsed.confidence) || 96)),
+          reason: parsed.reason || `Identifikasi presisi Guts AI (${model})`,
+          modelUsed: model,
+          latencyMs
+        };
       }
     } catch (err: any) {
       console.warn(`Guts AI [${model}] error:`, err?.message || err);

@@ -211,7 +211,19 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
       let base64Canvas: string | undefined;
       if (canvasRef.current) {
         try {
-          base64Canvas = canvasRef.current.toDataURL('image/jpeg', 0.82);
+          const src = canvasRef.current;
+          const maxDim = 300;
+          const scale = Math.min(1, maxDim / Math.max(src.width, src.height));
+          const thumb = document.createElement('canvas');
+          thumb.width = Math.max(1, Math.round(src.width * scale));
+          thumb.height = Math.max(1, Math.round(src.height * scale));
+          const tctx = thumb.getContext('2d');
+          if (tctx) {
+            tctx.drawImage(src, 0, 0, thumb.width, thumb.height);
+            base64Canvas = thumb.toDataURL('image/jpeg', 0.72);
+          } else {
+            base64Canvas = src.toDataURL('image/jpeg', 0.72);
+          }
         } catch {}
       }
 

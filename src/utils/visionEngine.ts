@@ -828,36 +828,41 @@ export function classifyFoodSample(
         score += 30;
       }
     } else if (p.id === 'ayam-krispi') {
-      // Ayam Goreng: deep browning with moderate redness a* between 12.8 and 18.0
-      // If a* is extremely high (>= 19.0), it is seafood / udang (astaxanthin in tails) rather than chicken!
-      if (lab.a >= 12.8 && lab.a <= 18.5 && lab.l <= 66 && lab.b >= 30) {
-        score += 35;
+      // Ayam Goreng: deep browning with moderate-high redness a* between 12.5 and 20.5, strong golden yellow b* >= 28
+      const yellowRedRatio = lab.b / Math.max(1, lab.a);
+      if (lab.a >= 12.5 && lab.a <= 20.5 && lab.b >= 28.0 && yellowRedRatio >= 1.5) {
+        score += 55;
       }
       if (df >= 1.80) {
+        score += 18;
+      }
+      if (lab.b >= 33.0) {
         score += 12;
       }
-      if (lab.a >= 14.0 && lab.a <= 18.0) {
-        score += 15;
+      if (dlStr.includes('chicken') || dlStr.includes('rotisserie') || dlStr.includes('drumstick') || dlStr.includes('poultry')) {
+        score += 40;
       }
-      if (lab.a >= 19.0) {
-        score -= 45; // Penalize chicken if redness is too high (shrimp tail territory!)
-      }
-      if (dlStr.includes('chicken') || dlStr.includes('rotisserie') || dlStr.includes('drumstick')) {
-        score += 25;
+      if (lab.a >= 22.5 || lab.b < 22.0) {
+        score -= 40; // Only penalize if redness is excessive (seafood tail astaxanthin) or yellow is missing
       }
     } else if (p.id === 'udang-crispy') {
-      // Udang Goreng Tepung / Ebi Furai / Seafood: high chromatic redness a* >= 17.0 (orange-red shrimp tails)
-      if (lab.a >= 17.0 && lab.b >= 26) {
-        score += 55; // MASSIVE BOOSTER FOR UDANG CRISPY!
-      }
-      if (lab.a >= 20.0) {
-        score += 35; // Extra booster for intense shrimp-tail redness!
+      // Udang Goreng Tepung / Ebi Furai / Seafood: ONLY when deep learning specifically says seafood/shrimp,
+      // or if extreme reddish tail astaxanthin is present (a* >= 22.0 and low yellow ratio b*/a* < 1.65)
+      const hasSeafoodLabel = dlStr.includes('shrimp') || dlStr.includes('prawn') || 
+                              dlStr.includes('ebi') || dlStr.includes('seafood') || 
+                              dlStr.includes('fish') || dlStr.includes('tempura');
+      const yellowRedRatio = lab.b / Math.max(1, lab.a);
+
+      if (hasSeafoodLabel) {
+        score += 60;
+      } else if (lab.a >= 22.0 && yellowRedRatio < 1.65) {
+        score += 25; // Genuine orange-red shrimp tail pigment
+      } else {
+        // Without seafood labels or extreme astaxanthin, shrimp must NOT steal from fried chicken!
+        score -= 45;
       }
       if (df >= 1.78 && df <= 1.88) {
-        score += 15;
-      }
-      if (dlStr.includes('shrimp') || dlStr.includes('prawn') || dlStr.includes('seafood') || dlStr.includes('fish')) {
-        score += 35;
+        score += 10;
       }
     } else if (p.id === 'keripik-kentang') {
       // Keripik: thin crisp, light color (L* >= 65), low redness (a* <= 10.5).
@@ -936,7 +941,7 @@ export function classifyFoodSample(
   } else if (bestProfile.id === 'udang-crispy') {
     detectedReason = `Spektrum merah-keemasan ekor udang (a*=${lab.a}) & pori renyah tepung ebi (Df=${df})`;
   } else if (bestProfile.id === 'ayam-krispi') {
-    detectedReason = `Kerak browning Maillard (a*=${lab.a}) & kontur fraktal ayam (Df=${df})`;
+    detectedReason = `Kerak browning Maillard keemasan (a*=${lab.a}, b*=${lab.b}) & pori renyah ayam krispi (Df=${df})`;
   } else if (bestProfile.id === 'keripik-kentang') {
     detectedReason = `Kecerahan renyah getas (L*=${lab.l}) & pori mikro tipis (Df=${df})`;
   } else if (bestProfile.id === 'kentang-goreng') {
