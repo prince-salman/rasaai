@@ -378,30 +378,29 @@ export async function validateFoodSample(
   }
 
   // 2. Browser Deep Learning Classifier (MobileNet ImageNet classes)
-  // Catches clothing, glasses, persons, faces, screen devices, and human apparel
+  // Only flags true human portrait labels; never flags clothing, screens, or backgrounds if food is present
   if (canvas) {
     try {
       const dlLabels = await detectWithMobileNet(canvas);
-      const PERSON_AND_NON_FOOD_LABELS = [
-        'person', 'face', 'suit', 't-shirt', 'jersey', 'sweatshirt', 'cardigan', 'coat',
-        'trench coat', 'jacket', 'jean', 'denim', 'sunglasses', 'sunglass', 'spectacles',
-        'glasses', 'wig', 'hair slide', 'necktie', 'bow tie', 'cloak', 'gown', 'academic gown',
-        'mask', 'scuba mask', 'gasmask', 'crash helmet', 'football helmet', 'sombrero',
-        'cowboy hat', 'bonnet', 'band aid', 'stethoscope', 'beard', 'mustache', 'kimono',
-        'pajama', 'bikini', 'brassiere', 'swimming trunks', 'lipstick', 'face powder',
-        'cellular telephone', 'hand-held computer', 'laptop', 'notebook', 'screen', 'monitor',
-        'television', 'desktop computer', 'computer keyboard', 'mouse', 'shoe', 'boot', 'sandal'
-      ];
-      for (const label of dlLabels) {
-        for (const pl of PERSON_AND_NON_FOOD_LABELS) {
-          if (label.includes(pl)) {
-            return {
-              isValid: false,
-              errorType: 'FACE_DETECTED',
-              title: 'Wajah Manusia / Objek Non-Pangan Terdeteksi!',
-              reason: `Sistem AI mendeteksi objek manusia/pakaian (${label}), bukan sampel makanan kuliner.`,
-              suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, tempe, pastry, dsb) untuk dianalisis.'
-            };
+      const STRICT_HUMAN_LABELS = ['person', 'human face', 'head', 'portrait', 'man', 'woman'];
+      const hasFoodLabel = dlLabels.some(l => 
+        l.includes('food') || l.includes('dish') || l.includes('plate') || l.includes('platter') ||
+        l.includes('bread') || l.includes('meat') || l.includes('poultry') || l.includes('chicken') ||
+        l.includes('fry') || l.includes('fried') || l.includes('bakery') || l.includes('snack') ||
+        l.includes('pizza') || l.includes('soup') || l.includes('noodle')
+      );
+      if (!hasFoodLabel) {
+        for (const label of dlLabels) {
+          for (const pl of STRICT_HUMAN_LABELS) {
+            if (label === pl || label.startsWith(pl + ' ') || label.endsWith(' ' + pl)) {
+              return {
+                isValid: false,
+                errorType: 'FACE_DETECTED',
+                title: 'Wajah Manusia Terdeteksi!',
+                reason: `Sistem AI mendeteksi objek manusia (${label}), bukan sampel makanan kuliner.`,
+                suggestion: 'Harap hanya mengambil foto makanan olahan (ayam goreng, keripik, tempe, pastry, dsb) untuk dianalisis.'
+              };
+            }
           }
         }
       }
@@ -531,14 +530,13 @@ export async function validateFoodSample(
   }
 
   // CHECK 4: Human Face / Selfie / Portrait Biometric Filter
-  // Flags human faces, selfies, portraits, and people with 100% precision
-  const isHumanPortrait = (
-    // Case A: Clear selfie/portrait structure (face skin + hair above or clothing below or central face cluster)
-    (skinRatio >= 0.14 && (upperHairRatio >= 0.04 || lowerClothRatio >= 0.06 || centerSkinRatio >= 0.20)) ||
-    // Case B: Close-up face filling the camera
-    (skinRatio >= 0.20 && warmFoodRatio < 0.15) ||
-    // Case C: Moderate skin tone with high concentration in the center and minimal food pigment
-    (skinRatio >= 0.10 && centerSkinRatio >= 0.25 && warmFoodRatio < 0.08)
+  // Flags true human face portraits; strictly protects food with golden carotenoids and frying batter
+  const hasFoodCarotenoids = warmFoodRatio >= 0.08;
+  const isHumanPortrait = !hasFoodCarotenoids && (
+    // Close-up human selfie: massive skin coverage filling the lens with no food pigment
+    (skinRatio >= 0.35 && centerSkinRatio >= 0.28 && warmFoodRatio < 0.05) ||
+    // Clear selfie structure with head hair above and clothing below
+    (skinRatio >= 0.28 && upperHairRatio >= 0.08 && lowerClothRatio >= 0.08 && warmFoodRatio < 0.04)
   );
 
   if (isHumanPortrait) {
@@ -683,14 +681,12 @@ export function classifyFoodSample(
   const warmFoodRatio = warmFoodCount / totalPixels;
 
   const dlStr = (deepLearningLabels || []).join(' ').toLowerCase();
-  const hasPersonLabel = dlStr.includes('person') || dlStr.includes('face') || dlStr.includes('suit') || 
-    dlStr.includes('t-shirt') || dlStr.includes('jersey') || dlStr.includes('sunglasses') || 
-    dlStr.includes('spectacles') || dlStr.includes('wig') || dlStr.includes('beard');
+  const hasStrictPersonLabel = dlStr.includes('person') || dlStr.includes('human face');
+  const hasFoodCarotenoids = warmFoodRatio >= 0.08;
 
-  const isHumanPortrait = (
-    hasPersonLabel ||
-    (skinRatio >= 0.14 && (upperHairRatio >= 0.04 || lowerClothRatio >= 0.06)) ||
-    (skinRatio >= 0.20 && warmFoodRatio < 0.15)
+  const isHumanPortrait = !hasFoodCarotenoids && (
+    (hasStrictPersonLabel && warmFoodRatio < 0.05) ||
+    (skinRatio >= 0.35 && (upperHairRatio >= 0.08 || lowerClothRatio >= 0.08) && warmFoodRatio < 0.04)
   );
 
   if (isHumanPortrait) {
