@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { 
   Activity, 
   Scan, 
-  Calculator, 
   Radio,
   Bell, 
   Store,
@@ -15,8 +14,8 @@ import {
 import { Branch } from '../../types';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'scanner' | 'roi';
-  setActiveTab: (tab: 'dashboard' | 'scanner' | 'roi') => void;
+  activeTab: 'dashboard' | 'scanner';
+  setActiveTab: (tab: 'dashboard' | 'scanner') => void;
   branches: Branch[];
   selectedBranch: string;
   setSelectedBranch: (id: string) => void;
@@ -129,19 +128,6 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Scan className="w-3.5 h-3.5" />
               <span>Simulator Kubah</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('roi')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'roi'
-                  ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <Calculator className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Kalkulator ROI</span>
-              <span className="sm:hidden">ROI</span>
             </button>
           </nav>
 

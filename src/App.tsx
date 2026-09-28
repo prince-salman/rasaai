@@ -3,7 +3,6 @@ import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
 import { QualityDashboard } from './components/dashboard/QualityDashboard';
 import { MiniDomeSimulator } from './components/scanner/MiniDomeSimulator';
-import { RoiCalculator } from './components/showcase/RoiCalculator';
 import { Branch, BatchRecord, NotificationItem } from './types';
 import { INITIAL_BRANCHES, INITIAL_BATCH_RECORDS } from './data/initialData';
 import { RealtimeToastContainer } from './components/notifications/RealtimeToastContainer';
@@ -13,7 +12,7 @@ import { playSuccessChime, playWarningChime, playDeviationAlert } from './utils/
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'roi'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner'>('dashboard');
   const [branches, setBranches] = useState<Branch[]>(() => {
     try {
       const saved = localStorage.getItem('rasaai_branches');
@@ -258,10 +257,6 @@ export const App: React.FC = () => {
             onAddBatchRecord={handleAddBatchRecord}
             onViewDashboard={() => setActiveTab('dashboard')}
           />
-        )}
-
-        {activeTab === 'roi' && (
-          <RoiCalculator />
         )}
       </main>
 
