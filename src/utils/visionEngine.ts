@@ -609,13 +609,19 @@ let cachedMobileNetModel: any = null;
 export async function detectWithMobileNet(canvasOrImage: HTMLCanvasElement | HTMLImageElement): Promise<string[]> {
   try {
     if (typeof window !== 'undefined' && (window as any).mobilenet) {
-      if (!cachedMobileNetModel) {
-        cachedMobileNetModel = await (window as any).mobilenet.load();
-      }
-      if (cachedMobileNetModel) {
-        const predictions = await cachedMobileNetModel.classify(canvasOrImage);
-        return predictions.map((p: any) => (p.className || '').toLowerCase());
-      }
+      const loadAndClassify = async () => {
+        if (!cachedMobileNetModel) {
+          cachedMobileNetModel = await (window as any).mobilenet.load();
+        }
+        if (cachedMobileNetModel) {
+          const predictions = await cachedMobileNetModel.classify(canvasOrImage);
+          return predictions.map((p: any) => (p.className || '').toLowerCase());
+        }
+        return [];
+      };
+
+      const timeoutPromise = new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 500));
+      return await Promise.race([loadAndClassify(), timeoutPromise]);
     }
   } catch (err) {
     console.warn('MobileNet classification fallback to local spectral vision engine:', err);

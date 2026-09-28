@@ -323,7 +323,9 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     if (!ctx) return;
 
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (typeof window !== 'undefined' && currentImageSrc.startsWith('http') && !currentImageSrc.startsWith(window.location.origin)) {
+      img.crossOrigin = 'anonymous';
+    }
     img.src = currentImageSrc;
     img.onload = () => {
       canvas.width = 360;
@@ -374,7 +376,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     };
   }, []);
 
-  const handleTriggerScan = async () => {
+  const handleTriggerScan = () => {
     if (isScanning) return;
     if (isCameraActive) captureLiveCamera();
 
@@ -383,60 +385,24 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Immediate Pre-Scan Validation: Halt immediately if face/non-food detected
-    const imgDataStart = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const preValidation = await validateFoodSample(canvas, imgDataStart);
-    if (!preValidation.isValid) {
-      setFoodValidationError(preValidation);
-      setAnalysisResult(null);
-      setAutoDetectedFood(null);
-      setIsSynced(false);
-      playDeviationAlert();
-      return;
-    }
-
-    // Auto-classify on scan trigger directly from current image
-    try {
-      const classification = classifyFoodSample(imgDataStart, FOOD_PROFILES);
-      if (classification.detectedProfileId === 'NON_FOOD') {
-        setFoodValidationError({
-          isValid: false,
-          errorType: 'FACE_DETECTED',
-          title: 'Wajah Manusia Terdeteksi!',
-          reason: classification.reason,
-          suggestion: 'Harap hanya mengambil foto makanan olahan untuk dianalisis.'
-        });
-        setAnalysisResult(null);
-        setAutoDetectedFood(null);
-        setIsSynced(false);
-        playDeviationAlert();
-        return;
-      }
-      const matched = classification.dynamicProfile || FOOD_PROFILES.find(p => p.id === classification.detectedProfileId);
-      if (matched && (!autoDetectedFood || matched.id !== selectedProfile.id)) {
-        setSelectedProfile(matched);
-        setAutoDetectedFood(classification);
-      }
-    } catch {
-      // Continue normal scan
-    }
-
+    // Reset previous errors and start scanning animation immediately for 0ms feedback
+    setFoodValidationError(null);
+    setAnalysisResult(null);
+    setIsSynced(false);
     setIsScanning(true);
     setScanProgress(0);
-    setAnalysisResult(null);
-    setFoodValidationError(null);
-    setIsSynced(false);
+    setScanPhaseText('🚀 Mengaktifkan sensor optik kubah & iluminasi 5000K...');
 
     const duration = 3800;
     const startTime = Date.now();
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       const elapsed = Date.now() - startTime;
       const progress = Math.min(100, Math.round((elapsed / duration) * 100));
       setScanProgress(progress);
 
       if (progress < 25) {
-        setScanPhaseText(`🤖 Identifikasi AI: Memindai & menganalisis karakteristik citra makanan...`);
+        setScanPhaseText('🤖 Identifikasi AI: Memindai & menganalisis karakteristik citra makanan...');
       } else if (progress < 50) {
         setScanPhaseText('🎨 Memeriksa warna & kematangan kerak (CIE-Lab & BI)...');
       } else if (progress < 75) {
@@ -449,22 +415,30 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
 
       if (elapsed >= duration) {
         clearInterval(interval);
-        setIsScanning(false);
 
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        try {
+          const currentCanvas = canvasRef.current || canvas;
+          const currentCtx = currentCanvas.getContext('2d');
+          if (!currentCtx) {
+            setIsScanning(false);
+            return;
+          }
 
-        // Pre-Flight: Validasi ketat bahwa gambar adalah makanan kuliner (bukan wajah/orang/benda non-makanan)
-        validateFoodSample(canvas, imgData).then((validation) => {
+          const imgData = currentCtx.getImageData(0, 0, currentCanvas.width, currentCanvas.height);
+
+          // Fast validation check for face / non-food
+          const validation = await validateFoodSample(currentCanvas, imgData);
           if (!validation.isValid) {
             setFoodValidationError(validation);
             setAnalysisResult(null);
+            setAutoDetectedFood(null);
             setIsSynced(false);
+            setIsScanning(false);
             playDeviationAlert();
             return;
           }
 
-          setFoodValidationError(null);
-          // Automatically classify food identity from the scanned photo
+          // Auto-classify food identity from the scanned photo
           const classification = classifyFoodSample(imgData, FOOD_PROFILES);
           if (classification.detectedProfileId === 'NON_FOOD') {
             setFoodValidationError({
@@ -477,6 +451,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
             setAnalysisResult(null);
             setAutoDetectedFood(null);
             setIsSynced(false);
+            setIsScanning(false);
             playDeviationAlert();
             return;
           }
@@ -514,7 +489,11 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
 
           onAddBatchRecord(newRecord);
           setIsSynced(true);
-        });
+        } catch (err) {
+          console.error("Scan processing error:", err);
+        } finally {
+          setIsScanning(false);
+        }
       }
     }, 75);
   };
@@ -914,25 +893,25 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
             {/* One-Touch Hardware Button */}
             <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-col items-center">
               <button
-                disabled={isScanning || !!foodValidationError}
+                disabled={isScanning}
                 onClick={handleTriggerScan}
-                className={`w-full py-3.5 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-xl transition-all ${
+                className={`w-full py-3.5 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-xl transition-all cursor-pointer ${
                   isScanning 
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700' 
                     : foodValidationError
-                    ? 'bg-rose-950/80 text-rose-300 border border-rose-700/80 cursor-not-allowed shadow-none'
+                    ? 'bg-gradient-to-r from-amber-500 via-rose-500 to-amber-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 ring-2 ring-amber-400/50 active:scale-[0.98]'
                     : 'bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-500 hover:from-teal-400 hover:to-emerald-300 text-slate-950 ring-2 ring-teal-400/40 animate-ring-pulse active:scale-[0.98]'
                 }`}
               >
-                {foodValidationError ? (
-                  <>
-                    <XCircle className="w-4 h-4 text-rose-400" />
-                    <span>SAMPEL DITOLAK (WAJAH MANUSIA / NON-PANGAN)</span>
-                  </>
-                ) : isScanning ? (
+                {isScanning ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Pengujian Sedang Berlangsung...</span>
+                  </>
+                ) : foodValidationError ? (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>UJI ULANG SAMPEL SEKARANG</span>
                   </>
                 ) : (
                   <>
@@ -943,7 +922,7 @@ export const MiniDomeSimulator: React.FC<MiniDomeSimulatorProps> = ({
               </button>
               <span className="text-[10px] text-slate-500 mt-1.5 text-center">
                 {foodValidationError 
-                  ? 'Ganti foto atau arahkan kamera ke makanan kuliner untuk membuka tombol pengujian'
+                  ? 'Klik tombol di atas untuk memicu uji ulang sampel makanan ini'
                   : 'Tombol fisik kubah otomatis memicu iluminasi cincin 5000K & sensor inframerah'}
               </span>
             </div>
